@@ -1,14 +1,14 @@
-# LocalWorkspaceBridge
+# AgentDock
 
 **Languages:** [English](README.md) · [简体中文](README_ZH.md) · [日本語](README_JA.md)
 
-LocalWorkspaceBridge is a local MCP gateway that gives ChatGPT bounded access to a developer workspace. The model remains the planner; LocalWorkspaceBridge supplies repository evidence, local files and images, direct edits, command verification, and Git-aware review.
+AgentDock is a local MCP gateway that gives ChatGPT bounded access to a developer workspace. The model remains the planner; AgentDock supplies repository evidence, local files and images, direct edits, command verification, and Git-aware review.
 
 > **Status:** early public release (`0.1.x`). Review the security model before exposing a local workspace through a public tunnel.
 
-## Why LocalWorkspaceBridge
+## Why AgentDock
 
-ChatGPT can reason about code, but a web session normally cannot inspect or modify arbitrary files on your computer. LocalWorkspaceBridge bridges that gap through MCP while keeping workspace boundaries explicit.
+ChatGPT can reason about code, but a web session normally cannot inspect or modify arbitrary files on your computer. AgentDock bridges that gap through MCP while keeping workspace boundaries explicit.
 
 The primary loop is intentionally simple:
 
@@ -23,7 +23,7 @@ ChatGPT model
    local workspace
 ```
 
-LocalWorkspaceBridge does not add a second server-side planning or execution layer. Planning stays with the model that is already driving the MCP tools.
+AgentDock does not add a second server-side planning or execution layer. Planning stays with the model that is already driving the MCP tools.
 
 ## Features
 
@@ -33,7 +33,7 @@ LocalWorkspaceBridge does not add a second server-side planning or execution lay
 - **Image tools** — image metadata, safe preview, rectangular crop, and tiled high-detail reads for JPEG/PNG/WebP files.
 - **Verification** — safe/full/off command modes plus Git-aware `show_changes` review.
 - **HTTP + stdio transports** — local MCP clients can use stdio; ChatGPT can connect through an HTTPS tunnel.
-- **OAuth for public HTTP mode** — OAuth discovery/PKCE is available when LocalWorkspaceBridge has a stable public URL.
+- **OAuth for public HTTP mode** — OAuth discovery/PKCE is available when AgentDock has a stable public URL.
 - **Multiple workspaces** — open, list, close, and switch the default workspace inside an allowed root set.
 - **Optional local Codex history reads** — disabled by default and only enabled explicitly.
 - **Linux service support** — saved stable profiles can run as a per-workspace `systemd --user` service.
@@ -66,15 +66,15 @@ For a normal ChatGPT workflow, run the setup wizard in the project you want to e
 
 ## ChatGPT connection
 
-1. Start LocalWorkspaceBridge in the target project.
+1. Start AgentDock in the target project.
 2. Use a stable HTTPS tunnel for a persistent ChatGPT connection.
-3. In ChatGPT Developer Mode / Plugins, add the Server URL printed by LocalWorkspaceBridge.
+3. In ChatGPT Developer Mode / Plugins, add the Server URL printed by AgentDock.
 4. When OAuth is enabled, complete the local approval flow rather than placing credentials in the URL.
 
 A useful first prompt is:
 
 ```text
-Use LocalWorkspaceBridge to open the current workspace, inspect the repository, and summarize the architecture. Do not edit files.
+Use AgentDock to open the current workspace, inspect the repository, and summarize the architecture. Do not edit files.
 ```
 
 ## ChatGPT + ngrok + OAuth quick start
@@ -85,36 +85,36 @@ This is the recommended public setup when you want a stable ChatGPT connection w
 
 Install ngrok, sign in, and add your ngrok auth token locally:
 
-`ash
+`\bash
 ngrok config add-authtoken <your-ngrok-token>
 `
 
 Create or reserve a stable ngrok domain in your ngrok account, for example your-name.ngrok-free.dev. Do not commit the ngrok auth token or any local ngrok configuration.
 
-### 2. Build LocalWorkspaceBridge
+### 2. Build AgentDock
 
-`ash
+`\bash
 npm install
 npm run build
 `
 
-### 3. Start LocalWorkspaceBridge with the stable ngrok hostname
+### 3. Start AgentDock with the stable ngrok hostname
 
-`ash
+`\bash
 node scripts/local-workspace-bridge.mjs ngrok --hostname your-name.ngrok-free.dev
 `
 
-The launcher starts the local MCP HTTP server, connects the reserved ngrok hostname, enables OAuth/PKCE for the public URL, and prints the credential-free MCP Server URL. It also prints a local **OAuth approval key**. Keep that key private; it is entered only on the LocalWorkspaceBridge consent page when you approve a connection.
+The launcher starts the local MCP HTTP server, connects the reserved ngrok hostname, enables OAuth/PKCE for the public URL, and prints the credential-free MCP Server URL. It also prints a local **OAuth approval key**. Keep that key private; it is entered only on the AgentDock consent page when you approve a connection.
 
 ### 4. Add it in ChatGPT
 
 In ChatGPT Developer Mode / Plugins:
 
 1. Create or add an MCP connection using **Server URL**.
-2. Paste the Server URL printed by LocalWorkspaceBridge, such as https://your-name.ngrok-free.dev/mcp.
+2. Paste the Server URL printed by AgentDock, such as https://your-name.ngrok-free.dev/mcp.
 3. Choose **OAuth** authentication.
 4. Start the connection. ChatGPT will enter the OAuth authorization flow.
-5. On the LocalWorkspaceBridge consent page, verify that you initiated the connection, enter the local OAuth approval key printed by the launcher, and approve it.
+5. On the AgentDock consent page, verify that you initiated the connection, enter the local OAuth approval key printed by the launcher, and approve it.
 
 After approval, ChatGPT completes the OAuth/PKCE flow and uses the resulting access token for MCP requests. You do not need to append a bearer token to the Server URL.
 
@@ -122,20 +122,20 @@ After approval, ChatGPT completes the OAuth/PKCE flow and uses the resulting acc
 
 Prefer:
 
-`	ext
+`\text
 https://your-name.ngrok-free.dev/mcp
 + OAuth / PKCE
 `
 
 over URL credentials such as:
 
-`	ext
+`\text
 https://your-name.ngrok-free.dev/mcp?token=...
 `
 
 Query-string credentials are disabled by default, can leak through browser/history/log surfaces, and are unnecessary when the stable public URL is using the built-in OAuth flow.
 
-> The OAuth approval key protects local consent; it is not your ngrok auth token. The ngrok token stays in ngrok's local configuration, while the LocalWorkspaceBridge approval key is generated/managed by LocalWorkspaceBridge for authorizing ChatGPT access.
+> The OAuth approval key protects local consent; it is not your ngrok auth token. The ngrok token stays in ngrok's local configuration, while the AgentDock approval key is generated/managed by AgentDock for authorizing ChatGPT access.
 
 ## Tool modes
 
@@ -170,7 +170,7 @@ The analysis layer provides evidence to the model; it does not decide or execute
 
 ## Image access
 
-Large images should not be pushed into model context at full resolution by default. LocalWorkspaceBridge exposes a progressive path:
+Large images should not be pushed into model context at full resolution by default. AgentDock exposes a progressive path:
 
 ```text
 image_info → read_image preview → read_image_crop / read_image_tile when detail is needed
@@ -190,7 +190,7 @@ Important defaults:
 - safe Bash blocks high-risk shell patterns and environment expansion;
 - logs are designed not to contain source contents, prompts, credentials, or full command output by default.
 
-LocalWorkspaceBridge is a developer bridge, **not an OS sandbox**. See [SECURITY.md](SECURITY.md).
+AgentDock is a developer bridge, **not an OS sandbox**. See [SECURITY.md](SECURITY.md).
 
 ## Verification
 
@@ -212,7 +212,7 @@ See [config.example.env](config.example.env). Prefer per-workspace saved profile
 
 ## Attribution
 
-LocalWorkspaceBridge is a derivative work based on the open-source **CodexPro** project. The original CodexPro copyright notice and MIT license are preserved in [LICENSE](LICENSE).
+AgentDock is a derivative work based on the open-source **CodexPro** project. The original CodexPro copyright notice and MIT license are preserved in [LICENSE](LICENSE).
 
 This derivative focuses on a single direct ChatGPT-to-workspace agent loop, repository/image evidence, authentication hardening, and reproducible local evaluation. It should not be represented as a from-scratch implementation of the upstream project.
 
