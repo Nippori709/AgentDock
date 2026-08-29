@@ -1,16 +1,16 @@
-# LocalWorkspaceBridge
+# AgentDock
 
 **Languages:** [English](README.md) · [简体中文](README_ZH.md) · [日本語](README_JA.md)
 
-LocalWorkspaceBridge 是一个运行在本机的 MCP Gateway，让 ChatGPT 在明确的工作区边界内读取仓库、分析代码、查看图片、修改文件、运行验证命令并审查 Git 改动。
+AgentDock 是一个运行在本机的 MCP Gateway，让 ChatGPT 在明确的工作区边界内读取仓库、分析代码、查看图片、修改文件、运行验证命令并审查 Git 改动。
 
-核心设计只有一条执行链：**ChatGPT 负责理解、规划和决策；LocalWorkspaceBridge 负责提供真实仓库证据与本机执行能力。**
+核心设计只有一条执行链：**ChatGPT 负责理解、规划和决策；AgentDock 负责提供真实仓库证据与本机执行能力。**
 
 > 当前为早期公开版本 `0.1.x`。通过公网隧道暴露本机工作区前，请先阅读 [SECURITY.md](SECURITY.md)。
 
-## 为什么做 LocalWorkspaceBridge
+## 为什么做 AgentDock
 
-网页端 ChatGPT 本身具备较强的代码理解和规划能力，但默认无法直接访问你电脑上的任意项目文件。LocalWorkspaceBridge 通过 MCP 补上“眼睛和手”：
+网页端 ChatGPT 本身具备较强的代码理解和规划能力，但默认无法直接访问你电脑上的任意项目文件。AgentDock 通过 MCP 补上“眼睛和手”：
 
 ```text
 ChatGPT 大模型
@@ -23,7 +23,7 @@ ChatGPT 大模型
      本机工作区
 ```
 
-LocalWorkspaceBridge 不额外实现第二套服务端规划/执行层，规划职责保持在正在调用 MCP 工具的大模型侧。
+AgentDock 不额外实现第二套服务端规划/执行层，规划职责保持在正在调用 MCP 工具的大模型侧。
 
 ## 主要能力
 
@@ -60,19 +60,19 @@ node scripts/local-workspace-bridge.mjs setup
 node scripts/local-workspace-bridge.mjs start --tunnel none
 ```
 
-正常给 ChatGPT Web 使用时，在你想开放的项目目录中运行 setup/start。LocalWorkspaceBridge 会把工作区级配置保存在 `~/.local-workspace-bridge`，并输出 MCP Server URL。
+正常给 ChatGPT Web 使用时，在你想开放的项目目录中运行 setup/start。AgentDock 会把工作区级配置保存在 `~/.local-workspace-bridge`，并输出 MCP Server URL。
 
 ## ChatGPT 接入
 
-1. 在目标项目中启动 LocalWorkspaceBridge。
+1. 在目标项目中启动 AgentDock。
 2. 长期使用建议选择稳定 HTTPS Tunnel。
-3. 在 ChatGPT Developer Mode / Plugins 中添加 LocalWorkspaceBridge 输出的 Server URL。
+3. 在 ChatGPT Developer Mode / Plugins 中添加 AgentDock 输出的 Server URL。
 4. 如果启用 OAuth，按本机 approval 流程授权，不要把 token 写进 URL。
 
 首次可以让 ChatGPT：
 
 ```text
-Use LocalWorkspaceBridge to open the current workspace, inspect the repository, and summarize the architecture. Do not edit files.
+Use AgentDock to open the current workspace, inspect the repository, and summarize the architecture. Do not edit files.
 ```
 
 ## ChatGPT + ngrok + OAuth 快速接入
@@ -83,36 +83,36 @@ Use LocalWorkspaceBridge to open the current workspace, inspect the repository, 
 
 安装并登录 ngrok，然后只在本机写入 ngrok Auth Token：
 
-`ash
+```bash
 ngrok config add-authtoken <your-ngrok-token>
-`
+```
 
-在 ngrok 账号中创建或保留一个固定域名，例如 your-name.ngrok-free.dev。不要把 ngrok Auth Token 或本机 ngrok 配置提交到仓库。
+在 ngrok 账号中创建或保留一个固定域名，例如 `your-name.ngrok-free.dev`。不要把 ngrok Auth Token 或本机 ngrok 配置提交到仓库。
 
-### 2. 构建 LocalWorkspaceBridge
+### 2. 构建 AgentDock
 
-`ash
+```bash
 npm install
 npm run build
-`
+```
 
 ### 3. 使用固定 ngrok 域名启动
 
-`ash
+```bash
 node scripts/local-workspace-bridge.mjs ngrok --hostname your-name.ngrok-free.dev
-`
+```
 
-Launcher 会启动本机 MCP HTTP Server、连接这个固定 ngrok 域名，并为公网 URL 启用 OAuth/PKCE。终端会打印一个不带凭据的 MCP Server URL，同时还会打印本机 **OAuth approval key（授权确认密钥）**。这个 key 只应在 LocalWorkspaceBridge 的授权确认页中输入，不要公开。
+Launcher 会启动本机 MCP HTTP Server、连接这个固定 ngrok 域名，并为公网 URL 启用 OAuth/PKCE。终端会打印一个不带凭据的 MCP Server URL，同时还会打印本机 **OAuth approval key（授权确认密钥）**。这个 key 只应在 AgentDock 的授权确认页中输入，不要公开。
 
 ### 4. 在 ChatGPT 中添加
 
 在 ChatGPT Developer Mode / Plugins 中：
 
 1. 选择通过 **Server URL** 添加 MCP 连接。
-2. 粘贴 LocalWorkspaceBridge 打印的地址，例如 https://your-name.ngrok-free.dev/mcp。
+2. 粘贴 AgentDock 打印的地址，例如 `https://your-name.ngrok-free.dev/mcp`。
 3. Authentication 选择 **OAuth**。
 4. 发起连接，ChatGPT 会进入 OAuth 授权流程。
-5. 在 LocalWorkspaceBridge consent page 中确认这是你刚刚发起的连接，输入终端打印的 OAuth approval key，然后批准。
+5. 在 AgentDock consent page 中确认这是你刚刚发起的连接，输入终端打印的 OAuth approval key，然后批准。
 
 批准后，ChatGPT 会完成 OAuth/PKCE，并使用得到的 Access Token 调用 MCP；你不需要把 Bearer Token 拼进 Server URL。
 
@@ -120,20 +120,20 @@ Launcher 会启动本机 MCP HTTP Server、连接这个固定 ngrok 域名，并
 
 推荐：
 
-`	ext
+```text
 https://your-name.ngrok-free.dev/mcp
 + OAuth / PKCE
-`
+```
 
 而不是：
 
-`	ext
+```text
 https://your-name.ngrok-free.dev/mcp?token=...
-`
+```
 
 Query-string credential 默认就是关闭的，而且 URL 中的凭据更容易出现在浏览器历史、日志或其他记录面。既然固定公网 URL 已经支持内置 OAuth，就没有必要再把 token 放到 URL 里。
 
-> OAuth approval key 和 ngrok Auth Token 不是同一个东西。ngrok Token 只保存在 ngrok 的本机配置中；OAuth approval key 由 LocalWorkspaceBridge 用来确认你是否允许 ChatGPT 获得当前工作区访问权限。
+> OAuth approval key 和 ngrok Auth Token 不是同一个东西。ngrok Token 只保存在 ngrok 的本机配置中；OAuth approval key 由 AgentDock 用来确认你是否允许 ChatGPT 获得当前工作区访问权限。
 
 ## Tool Mode
 
@@ -188,7 +188,7 @@ image_info → read_image preview → 需要细节时 read_image_crop / read_ima
 - safe Bash 阻止高风险 shell pattern 与环境变量展开；
 - 默认日志不记录源文件正文、prompt、credential 和完整命令输出。
 
-LocalWorkspaceBridge 是开发者桥接工具，**不是操作系统级 Sandbox**。完整说明见 [SECURITY.md](SECURITY.md)。
+AgentDock 是开发者桥接工具，**不是操作系统级 Sandbox**。完整说明见 [SECURITY.md](SECURITY.md)。
 
 ## 验证与评测
 
@@ -206,6 +206,6 @@ Headless Linux / VPS 的 `systemd --user` 运行方式见 [LINUX_SERVER.md](LINU
 
 ## 来源与许可证
 
-LocalWorkspaceBridge 是基于开源项目 **CodexPro** 的衍生开发，保留原项目的 MIT License 和版权声明，见 [LICENSE](LICENSE)。
+AgentDock 是基于开源项目 **CodexPro** 的衍生开发，保留原项目的 MIT License 和版权声明，见 [LICENSE](LICENSE)。
 
-本项目公开时应如实说明这一代码血缘；它不是“从零重新实现 CodexPro”。LocalWorkspaceBridge 的当前方向主要集中在单一直接 Agent 执行链、仓库/图片证据、认证加固以及可复现本地评测。
+本项目公开时应如实说明这一代码血缘；它不是“从零重新实现 CodexPro”。AgentDock 的当前方向主要集中在单一直接 Agent 执行链、仓库/图片证据、认证加固以及可复现本地评测。
