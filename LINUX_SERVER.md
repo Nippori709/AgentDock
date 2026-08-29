@@ -1,6 +1,6 @@
 # Linux server setup
 
-LocalWorkspaceBridge can run on a headless Linux host as a per-workspace `systemd --user` service.
+AgentDock can run on a headless Linux host as a per-workspace `systemd --user` service.
 
 ## 1. Build and configure once
 
@@ -28,7 +28,7 @@ node scripts/local-workspace-bridge.mjs service install --root /absolute/path/to
 node scripts/local-workspace-bridge.mjs service status --root /absolute/path/to/your/repo
 ```
 
-The service is workspace-specific and uses the saved LocalWorkspaceBridge profile for that root.
+The service is workspace-specific and uses the saved AgentDock profile for that root.
 
 To restart or remove it:
 
