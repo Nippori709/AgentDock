@@ -1,10 +1,10 @@
 # Security Policy
 
-LocalWorkspaceBridge connects an AI model to a real local workspace. Treat that capability as privileged developer access.
+AgentDock connects an AI model to a real local workspace. Treat that capability as privileged developer access.
 
 ## Security boundaries
 
-LocalWorkspaceBridge is designed to reduce accidental exposure and constrain normal tool use. It is **not** an operating-system sandbox and does not make untrusted repositories or commands safe by itself.
+AgentDock is designed to reduce accidental exposure and constrain normal tool use. It is **not** an operating-system sandbox and does not make untrusted repositories or commands safe by itself.
 
 Key controls include:
 
@@ -50,7 +50,7 @@ Do not commit:
 
 ## Logs and telemetry
 
-LocalWorkspaceBridge does not require hosted telemetry for its core functionality. Local diagnostic/benchmark output should avoid prompts, source bodies, credentials, and full command transcripts unless the user explicitly requests them.
+AgentDock does not require hosted telemetry for its core functionality. Local diagnostic/benchmark output should avoid prompts, source bodies, credentials, and full command transcripts unless the user explicitly requests them.
 
 ## Reporting a vulnerability
 
