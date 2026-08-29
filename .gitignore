@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+output/
+.env
+.env.*
+!.env.example
+*.log
+*.tgz
+*.local.md
+*.local.json
+.local-workspace-bridge/
+.DS_Store
+Thumbs.db
+**/_logs/
+**/npm-cache/
+benchmarks/results/

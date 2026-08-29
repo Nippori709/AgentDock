@@ -1,0 +1,14 @@
+node_modules/
+coverage/
+output/
+.env
+.env.*
+*.log
+*.tgz
+*.local.md
+*.local.json
+.local-workspace-bridge/
+.DS_Store
+Thumbs.db
+benchmarks/
+.github/

@@ -1,0 +1,86 @@
+{
+  "name": "local-workspace-bridge",
+  "version": "0.1.0",
+  "description": "A local MCP gateway that gives ChatGPT bounded repository context, file and image access, direct workspace edits, command verification, and change review.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nippori709/LocalWorkspaceBridge.git"
+  },
+  "homepage": "https://github.com/Nippori709/LocalWorkspaceBridge#readme",
+  "bugs": {
+    "url": "https://github.com/Nippori709/LocalWorkspaceBridge/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "mcp",
+    "chatgpt",
+    "agent",
+    "developer-tools",
+    "repository-analysis",
+    "local-development"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist/**/*.js",
+    "scripts/local-workspace-bridge.mjs",
+    "scripts/image-worker.py",
+    "scripts/runtime/status.mjs",
+    "README.md",
+    "README_ZH.md",
+    "README_JA.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "LINUX_SERVER.md",
+    "LICENSE",
+    "config.example.env"
+  ],
+  "bin": {
+    "local-workspace-bridge": "scripts/local-workspace-bridge.mjs",
+    "local-workspace-bridge-mcp": "dist/stdio.js",
+    "local-workspace-bridge-mcp-http": "dist/http.js"
+  },
+  "scripts": {
+    "clean": "node scripts/clean.mjs",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "prepack": "npm run build",
+    "start": "node dist/stdio.js",
+    "start:stdio": "node dist/stdio.js",
+    "start:http": "node dist/http.js",
+    "dev:stdio": "tsx src/stdio.ts",
+    "dev:http": "tsx src/http.ts",
+    "smoke": "node scripts/analysis-smoke.mjs && node scripts/analysis-cli-smoke.mjs && node scripts/shell-smoke.mjs && node scripts/linux-service-smoke.mjs && node scripts/image-smoke.mjs && node scripts/smoke.mjs && node scripts/http-smoke.mjs",
+    "benchmark": "npm run build && node benchmarks/run.mjs",
+    "benchmark:quick": "npm run build && node benchmarks/run.mjs --quick",
+    "proxy:smoke": "npm run build && node scripts/proxy-smoke.mjs",
+    "doctor": "node scripts/local-workspace-bridge.mjs doctor",
+    "connect": "node scripts/local-workspace-bridge.mjs",
+    "connect:setup": "node scripts/local-workspace-bridge.mjs setup",
+    "connect:local": "node scripts/local-workspace-bridge.mjs --tunnel none",
+    "connect:cloudflare": "node scripts/local-workspace-bridge.mjs --tunnel cloudflare",
+    "connect:ngrok": "node scripts/local-workspace-bridge.mjs ngrok",
+    "connect:tailscale": "node scripts/local-workspace-bridge.mjs tailscale"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/sdk": "^1.17.4",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "ignore": "^7.0.6",
+    "minimatch": "^10.0.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  }
+}
