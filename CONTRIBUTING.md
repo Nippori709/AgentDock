@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for contributing to LocalWorkspaceBridge.
+Thanks for contributing to AgentDock.
 
 ## Development setup
 
@@ -15,7 +15,7 @@ Use Node.js 20+ and Git. Image-tool tests also require Python 3 with PyMuPDF ins
 
 ## Project principles
 
-- Keep ChatGPT/model reasoning separate from the local gateway. LocalWorkspaceBridge should provide evidence and execution primitives rather than duplicate the model's planning layer.
+- Keep ChatGPT/model reasoning separate from the local gateway. AgentDock should provide evidence and execution primitives rather than duplicate the model's planning layer.
 - Preserve explicit workspace and security boundaries.
 - Prefer bounded outputs over dumping whole repositories or large binary assets into model context.
 - Add focused regression coverage for behavior changes.
