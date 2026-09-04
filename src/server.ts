@@ -21,6 +21,14 @@ import {
   readImageFile,
   readImageTile
 } from "./imageOps.js";
+import {
+  DEFAULT_PDF_PAGE_DIMENSION,
+  MAX_DOCUMENT_TEXT_BYTES,
+  MAX_PDF_PAGE_DIMENSION,
+  readDocxText,
+  readPdfPage,
+  readPdfText
+} from "./documentOps.js";
 import { searchWorkspace } from "./searchOps.js";
 import { runBash } from "./bashOps.js";
 import { gitDiff, gitDiffNumstat, gitDiffStatus, gitLog, gitStatus } from "./gitOps.js";
@@ -191,7 +199,7 @@ function toolCallLoggingEnabled(): boolean {
   return process.env.LOCALWORKSPACEBRIDGE_LOG_TOOL_CALLS === "1" || process.env.LOCALWORKSPACEBRIDGE_LOG_REQUESTS === "1";
 }
 
-const IDEMPOTENT_RETRY_TOOLS = new Set(["inspect_workspace", "search", "read", "read_image", "tree"]);
+const IDEMPOTENT_RETRY_TOOLS = new Set(["inspect_workspace", "search", "read", "read_pdf", "read_pdf_page", "read_docx", "read_image", "tree"]);
 
 function shortHash(value: unknown): string | undefined {
   if (typeof value !== "string" || !value) return undefined;
@@ -399,6 +407,9 @@ const MINIMAL_TOOL_NAMES = [
   "open_current_workspace",
   "open_workspace",
   "read",
+  "read_pdf",
+  "read_pdf_page",
+  "read_docx",
   "read_image",
   "image_info",
   "read_image_crop",
@@ -437,6 +448,9 @@ const FULL_TOOL_NAMES = [
   "tree",
   "search",
   "read",
+  "read_pdf",
+  "read_pdf_page",
+  "read_docx",
   "read_image",
   "image_info",
   "read_image_crop",
@@ -561,7 +575,7 @@ function serverInstructions(config: LocalWorkspaceBridgeConfig): string {
     "Preferred workflow:",
     "1. Start with open_current_workspace. Use open_workspace only when the user gives a different root or asks to switch folders.",
     "2. Follow any AGENTS.md-style instructions returned by the workspace open call before editing files.",
-    "3. Inspect text with tree, search, and read. For .jpg, .jpeg, .png, or .webp files, use read_image so the visual model receives native image content; never use text read or bash as a substitute for image reading.",
+    "3. Inspect text with tree, search, and read. Use read_pdf for PDF text, read_pdf_page when PDF layout or scanned content needs visual inspection, and read_docx for Word .docx content. For .jpg, .jpeg, .png, or .webp files, use read_image so the visual model receives native image content; never use text read or bash as a substitute for supported document/image reading.",
     editInstruction,
     bashInstruction,
     "6. Keep tool calls minimal. Prefer one targeted search plus show_changes instead of repeated broad inspection calls.",
@@ -1980,6 +1994,110 @@ export function createLocalWorkspaceBridgeServer(config: LocalWorkspaceBridgeCon
       const summary = `# Read File\n\nPath: ${result.path}\nLines: ${result.startLine}-${result.endLine} of ${result.totalLines}\nReturned: ${result.bytesReturned}/${result.bytes} bytes${result.truncated ? " (partial)" : ""}${result.nextStartLine ? `\nNext start line: ${result.nextStartLine}` : ""}\nSHA-256: ${result.sha256}`;
       const standardText = [summary, "", "## File Content", "", fileText].join("\n");
       return textResult(standardText, { workspace_id: workspace.id, root: workspace.root, ...metadata, text: fileText });
+    }
+  );
+
+  registerCodexTool(
+    config,
+    server,
+    "read_pdf",
+    {
+      title: "Read PDF",
+      description: "Extract text from a workspace-local PDF with 1-based page ranges. If a page has no extractable text or layout matters, use read_pdf_page to inspect that page visually.",
+      inputSchema: {
+        workspace_id: z.string().optional().describe("Workspace id from open_workspace. Omit to use default workspace."),
+        path: z.string().describe("PDF path relative to workspace root. Maximum input: 100 MiB."),
+        start_page: z.number().int().min(1).optional().describe("First 1-based page to extract. Default: 1."),
+        end_page: z.number().int().min(1).optional().describe("Last 1-based page to extract. Default: end of PDF."),
+        max_bytes: z.number().int().min(1000).max(MAX_DOCUMENT_TEXT_BYTES).optional().describe("Maximum UTF-8 text bytes returned in this call. Default/max: 60000.")
+      },
+      annotations: READ_ONLY_ANNOTATIONS
+    },
+    async (args) => {
+      const workspace = workspaces.getWorkspace(args.workspace_id);
+      const result = await readPdfText(guard, workspace, args.path, {
+        startPage: args.start_page,
+        endPage: args.end_page,
+        maxBytes: args.max_bytes
+      });
+      const summary = `# Read PDF\n\nPath: ${result.path}\nPages: ${result.startPage}-${result.endPage} of ${result.pageCount}\nReturned: ${result.bytesReturned} text bytes from ${result.bytes} file bytes${result.truncated ? " (partial)" : ""}${result.nextPage ? `\nNext page: ${result.nextPage}` : ""}`;
+      return textResult([summary, "", "## Extracted Text", "", result.text].join("\n"), {
+        workspace_id: workspace.id,
+        root: workspace.root,
+        path: result.path,
+        bytes: result.bytes,
+        page_count: result.pageCount,
+        start_page: result.startPage,
+        end_page: result.endPage,
+        requested_end_page: result.requestedEndPage,
+        ...(result.nextPage ? { next_page: result.nextPage } : {}),
+        bytes_returned: result.bytesReturned,
+        truncated: result.truncated,
+        text: result.text
+      });
+    }
+  );
+
+  registerCodexTool(
+    config,
+    server,
+    "read_pdf_page",
+    {
+      title: "Read PDF Page",
+      description: "Render one 1-based PDF page as native JPEG image content for visual inspection of scanned pages, charts, tables, or layout that text extraction cannot preserve.",
+      inputSchema: {
+        workspace_id: z.string().optional().describe("Workspace id from open_workspace. Omit to use default workspace."),
+        path: z.string().describe("PDF path relative to workspace root. Maximum input: 100 MiB."),
+        page: z.number().int().min(1).describe("1-based PDF page number to render."),
+        max_dimension: z.number().int().min(128).max(MAX_PDF_PAGE_DIMENSION).optional().describe(`Rendered page longest-side dimension. Default: ${DEFAULT_PDF_PAGE_DIMENSION}; max: ${MAX_PDF_PAGE_DIMENSION}.`)
+      },
+      annotations: READ_ONLY_ANNOTATIONS
+    },
+    async (args) => {
+      const workspace = workspaces.getWorkspace(args.workspace_id);
+      return readPdfPage(guard, workspace, args.path, args.page, { maxDimension: args.max_dimension });
+    }
+  );
+
+  registerCodexTool(
+    config,
+    server,
+    "read_docx",
+    {
+      title: "Read DOCX",
+      description: "Extract Word .docx content as numbered logical lines, including normal paragraphs and table rows. Uses the OOXML package directly and does not require Microsoft Word.",
+      inputSchema: {
+        workspace_id: z.string().optional().describe("Workspace id from open_workspace. Omit to use default workspace."),
+        path: z.string().describe("DOCX path relative to workspace root. Maximum input: 100 MiB."),
+        start_line: z.number().int().min(1).optional().describe("First logical line to read. Default: 1."),
+        end_line: z.number().int().min(1).optional().describe("Last logical line to read. Default: end of document."),
+        max_bytes: z.number().int().min(1000).max(MAX_DOCUMENT_TEXT_BYTES).optional().describe("Maximum UTF-8 text bytes returned in this call. Default/max: 60000.")
+      },
+      annotations: READ_ONLY_ANNOTATIONS
+    },
+    async (args) => {
+      const workspace = workspaces.getWorkspace(args.workspace_id);
+      const result = await readDocxText(guard, workspace, args.path, {
+        startLine: args.start_line,
+        endLine: args.end_line,
+        maxBytes: args.max_bytes
+      });
+      const range = result.totalLines === 0 ? "0" : `${result.startLine}-${result.endLine}`;
+      const summary = `# Read DOCX\n\nPath: ${result.path}\nLogical lines: ${range} of ${result.totalLines}\nReturned: ${result.bytesReturned} text bytes from ${result.bytes} file bytes${result.truncated ? " (partial)" : ""}${result.nextLine ? `\nNext line: ${result.nextLine}` : ""}`;
+      return textResult([summary, "", "## Extracted Content", "", result.text].join("\n"), {
+        workspace_id: workspace.id,
+        root: workspace.root,
+        path: result.path,
+        bytes: result.bytes,
+        total_lines: result.totalLines,
+        start_line: result.startLine,
+        end_line: result.endLine,
+        requested_end_line: result.requestedEndLine,
+        ...(result.nextLine ? { next_line: result.nextLine } : {}),
+        bytes_returned: result.bytesReturned,
+        truncated: result.truncated,
+        text: result.text
+      });
     }
   );
 

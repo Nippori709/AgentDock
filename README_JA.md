@@ -178,6 +178,18 @@ image_info → read_image preview → 必要に応じて read_image_crop / read_
 
 画像にも text file と同じ workspace/path security boundary が適用されます。
 
+## PDF / DOCX Access
+
+AgentDock は `read_pdf` で PDF のテキストを抽出し、`read_pdf_page` で指定ページを画像として確認できます。Word `.docx` は `read_docx` で段落や表の行を抽出できます。
+
+PDF 機能には AgentDock を実行するマシン上の PyMuPDF が必要です。
+
+```bash
+python -m pip install pymupdf
+```
+
+DOCX は OOXML を直接解析するため、Microsoft Word や追加の Python パッケージは不要です。
+
 ## Security Model
 
 主なデフォルト：

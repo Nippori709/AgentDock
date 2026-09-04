@@ -176,6 +176,18 @@ image_info → read_image preview → 需要细节时 read_image_crop / read_ima
 
 图片工具和文本工具使用同一套 workspace/path 安全边界。
 
+## PDF 和 DOCX 读取
+
+AgentDock 可以用 `read_pdf` 提取 PDF 文本，用 `read_pdf_page` 把指定 PDF 页面渲染成图片查看版式、扫描内容、图表或表格，也可以用 `read_docx` 提取 Word `.docx` 中的段落和表格行。
+
+PDF 功能需要运行 AgentDock 的电脑安装 PyMuPDF：
+
+```bash
+python -m pip install pymupdf
+```
+
+DOCX 直接解析 OOXML，不需要安装 Microsoft Word，也不需要额外 Python 包。
+
 ## 安全边界
 
 默认策略包括：

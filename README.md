@@ -178,6 +178,18 @@ image_info → read_image preview → read_image_crop / read_image_tile when det
 
 Image paths are subject to the same workspace guards as text files.
 
+## PDF and DOCX access
+
+AgentDock can read PDF text with `read_pdf`, render a PDF page for visual inspection with `read_pdf_page`, and extract paragraphs/table rows from Word `.docx` files with `read_docx`.
+
+PDF support uses PyMuPDF on the machine running AgentDock:
+
+```bash
+python -m pip install pymupdf
+```
+
+DOCX extraction reads OOXML directly and does not require Microsoft Word or an extra Python package.
+
 ## Security model
 
 Important defaults:
