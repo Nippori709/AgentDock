@@ -38,104 +38,248 @@ AgentDock は、モデルとは別の第 2 の Planner や実行レイヤーを�
 
 ## 必要環境
 
-- Node.js 20+
-- Git
-- Python 3（画像処理用）
-- PyMuPDF：`pip install pymupdf`
-- 任意：Cloudflare Tunnel / ngrok / Tailscale
+推奨する **Windows + ChatGPT + ngrok + OAuth** 構成では、次を用意してください。
 
-## インストールと起動
+- **Git**
+- **Node.js 20+**
+- **Python 3**
+- **PyMuPDF**：`python -m pip install pymupdf`
+- **ngrok**：ChatGPT から到達できる stable HTTPS URL 用
+- Custom MCP App / Developer Mode を利用できる ChatGPT account/workspace
 
-このリポジトリから：
+推奨ルートでは Namecheap などでドメインを購入する必要はありません。ngrok の free plan には account に割り当てられた development domain があります。独自ドメインを既に持っている場合だけ、Cloudflare named tunnel を代替ルートとして利用できます。
 
-```bash
+## ゼロからの導入：Windows + ngrok + OAuth
+
+### Step 0 — 接続構成
+
+```text
+ChatGPT
+  ↓ HTTPS + OAuth
+ngrok development domain
+  ↓
+AgentDock HTTP/MCP server (default: 8787)
+  ↓
+explicitly allowed local workspace
+```
+
+混同しやすい値は 3 つあります。
+
+| 項目 | 取得場所 | 使用場所 | 秘密情報? |
+| --- | --- | --- | --- |
+| ngrok authtoken | ngrok Dashboard | `ngrok config add-authtoken ...` | **Yes** |
+| ngrok dev domain | ngrok Dashboard → Domains | AgentDock setup の hostname | No |
+| AgentDock OAuth approval key | AgentDock 起動端末 | AgentDock consent page | **Yes** |
+
+ngrok authtoken と AgentDock OAuth approval key は別物です。
+
+### Step 1 — Clone
+
+```powershell
+git clone https://github.com/Nippori709/AgentDock.git
+cd AgentDock
+```
+
+既に clone 済みなら：
+
+```powershell
+git pull
+```
+
+### Step 2 — Dependencies / build
+
+```powershell
 npm install
+python -m pip install pymupdf
 npm run build
+npm run smoke
+```
+
+任意で global CLI として現在の checkout を登録できます。
+
+```powershell
+npm install -g .
+```
+
+これを行うと `local-workspace-bridge` コマンドを直接使えます。
+
+### Step 3 — ngrok account から 2 つの値を取得
+
+ngrok Dashboard で次を確認します。
+
+1. **Authtoken**
+2. **Domains** に表示される account-assigned development domain
+
+ドメイン名は README の例をコピーせず、Dashboard に表示された実際の値を使ってください。account によっては次のような suffix が表示されます。
+
+```text
+example-name.ngrok-free.app
+```
+
+古い account では次のような hostname が残っている場合もあります。
+
+```text
+example-name.ngrok-free.dev
+```
+
+### Step 4 — ngrok を Windows にインストール
+
+例：
+
+```powershell
+winget install ngrok -s msstore
+ngrok version
+```
+
+次に ngrok authtoken をローカル設定へ保存します。
+
+```powershell
+ngrok config add-authtoken "YOUR_NGROK_AUTHTOKEN"
+```
+
+この token は Git/README/Issue/公開チャットに貼らないでください。
+
+### Step 5 — AgentDock setup wizard
+
+```powershell
 node scripts/local-workspace-bridge.mjs setup
 ```
 
-ローカル専用 MCP endpoint：
+global CLI を登録した場合：
 
-```bash
-node scripts/local-workspace-bridge.mjs start --tunnel none
+```powershell
+local-workspace-bridge setup
 ```
 
-通常の ChatGPT workflow では、公開したいプロジェクトで setup wizard を実行します。workspace ごとの設定は `~/.local-workspace-bridge` に保存され、MCP Server URL が表示されます。
+推奨回答：
 
-## ChatGPT 接続
+1. `Where is your project located?` → ChatGPT に操作させたい実際の project folder。
+2. `Which local port ...?` → 通常は Enter で `8787`。
+3. `Public access: ...?` → `ngrok`。
+4. `Ngrok domain or URL, without /mcp` → Dashboard からコピーした hostname。`/mcp` は付けない。
+5. `LocalWorkspaceBridge auth token for this workspace` → 通常は生成された default を Enter で採用。
+6. `Save this setup ...?` → `yes`。
+7. `Start LocalWorkspaceBridge now?` → `yes`。
 
-1. 対象プロジェクトで AgentDock を起動します。
-2. 継続利用する場合は stable HTTPS tunnel を使います。
-3. ChatGPT Developer Mode / Plugins で、表示された Server URL を追加します。
-4. OAuth が有効な場合は、URL に credential を埋め込まず、ローカル consent flow を完了します。
+workspace profile は `~/.local-workspace-bridge` に保存されるため、毎回同じ設定を入力する必要はありません。
 
-最初の確認用プロンプト例：
+### Step 6 — Startup output
+
+成功時は次のような情報が表示されます。
+
+```text
+LocalWorkspaceBridge ready
+Server URL  https://YOUR_NGROK_DOMAIN/mcp
+Authentication: OAuth
+
+OAuth approval key (enter once on the LocalWorkspaceBridge consent page):
+  <private-key>
+```
+
+ChatGPT に入力するのは **Server URL** です。approval key は URL に追加せず、OAuth consent page でのみ使います。
+
+### Step 7 — ChatGPT で custom MCP App を作成
+
+ChatGPT UI は plan/rollout によって変わります。現在の OpenAI documentation では一般に **Settings → Apps → Create** が案内されていますが、一部の account/build では Developer Mode / Plugins の UI が表示されることがあります。
+
+入力例：
+
+```text
+Name: AgentDock
+Description: Local coding workspace bridge for ChatGPT
+Connection: Server URL
+Server URL: https://YOUR_NGROK_DOMAIN/mcp
+Authentication: OAuth
+```
+
+`Scan Tools` がある場合は実行します。OAuth が開始されると AgentDock consent page に遷移します。
+
+Current OpenAI help:
+
+https://help.openai.com/en/articles/12584461-developer-mode-apps-and-full-mcp-connectors-in-chatgpt-beta
+
+### Step 8 — OAuth approval
+
+AgentDock consent page で：
+
+1. 自分が ChatGPT から開始した request であることを確認。
+2. terminal に表示された **AgentDock OAuth approval key** を入力。
+3. Approve。
+
+ここに ngrok authtoken を入力しないでください。
+
+### Step 9 — Read-only test
 
 ```text
 Use AgentDock to open the current workspace, inspect the repository, and summarize the architecture. Do not edit files.
 ```
 
-## ChatGPT + ngrok + OAuth クイックスタート
+まず `open_current_workspace` / `tree` / `search` / `read` を確認し、その後 write/edit/bash を試すのが安全です。
 
-固定の公開 URL を使いつつ、Bearer Token を MCP URL に入れたくない場合は、**固定 ngrok ドメイン + OAuth/PKCE** を推奨します。
+### Step 10 — Daily start
 
-### 1. ngrok を準備する
+saved profile がある場合：
 
-ngrok をインストールしてログインし、ngrok Auth Token をローカル設定に追加します。
-
-```bash
-ngrok config add-authtoken <your-ngrok-token>
+```powershell
+node scripts/local-workspace-bridge.mjs start --root "D:\Projects\MyApp"
 ```
 
-ngrok アカウントで固定ドメインを作成または予約します。例：`your-name.ngrok-free.dev`。ngrok Auth Token やローカル設定ファイルはリポジトリに commit しないでください。
+または global CLI：
 
-### 2. AgentDock をビルドする
-
-```bash
-npm install
-npm run build
+```powershell
+cd D:\Projects\MyApp
+local-workspace-bridge start
 ```
 
-### 3. 固定 ngrok hostname で起動する
+同じ ngrok development domain を使う限り、ChatGPT 側の Server URL を毎回変更する必要はありません。
 
-```bash
-node scripts/local-workspace-bridge.mjs ngrok --hostname your-name.ngrok-free.dev
+## Coding Agent に導入を任せる場合
+
+Codex / Claude Code などは clone、dependency install、build、smoke、local process troubleshooting まで自動化できます。ただし次を推測させないでください。
+
+1. ngrok login/account creation
+2. ngrok authtoken
+3. actual ngrok dev domain
+4. ChatGPT account/workspace permissions
+5. ChatGPT custom MCP App creation/authorization
+6. AgentDock OAuth approval key の consent page 入力
+
+例：
+
+```text
+Clone https://github.com/Nippori709/AgentDock and deploy it by following README_JA.md exactly.
+Use the Windows + ngrok + OAuth path. Do all local terminal steps yourself.
+Never invent a domain, token, approval key, or ChatGPT account permission.
+When a browser/account action is required, tell me exactly what value you need and continue after I provide it.
+Run build and smoke before declaring deployment complete.
 ```
 
-Launcher はローカル MCP HTTP Server を起動し、予約済み ngrok hostname を接続し、その public URL に対して OAuth/PKCE を有効にします。端末には credential を含まない MCP Server URL と、ローカルの **OAuth approval key** が表示されます。
+## Tunnel の選択
 
-OAuth approval key は AgentDock の consent page で接続を承認するときだけ入力してください。公開しないでください。
+- **ngrok**：推奨。account-assigned development domain を利用。
+- **quick**：Cloudflare quick tunnel。簡単だが再起動で URL が変わることがある。
+- **stable**：自分の domain + Cloudflare named tunnel。
+- **tailscale**：Tailscale Funnel。
+- **local**：public URL なし。
 
-### 4. ChatGPT に追加する
+Namecheap は必須ではありません。既に Namecheap 等で独自ドメインを所有していて Cloudflare named tunnel を使いたい場合だけ関係します。
 
-ChatGPT Developer Mode / Plugins で：
-
-1. **Server URL** を使って MCP 接続を追加します。
-2. AgentDock が表示した URL を貼り付けます。例：`https://your-name.ngrok-free.dev/mcp`。
-3. Authentication は **OAuth** を選びます。
-4. 接続を開始すると ChatGPT が OAuth authorization flow に入ります。
-5. AgentDock の consent page で、自分が開始した接続であることを確認し、端末に表示された OAuth approval key を入力して承認します。
-
-承認後、ChatGPT は OAuth/PKCE を完了し、取得した Access Token で MCP request を行います。Server URL に Bearer Token を追加する必要はありません。
-
-### URL token より OAuth を推奨する理由
+## OAuth を推奨する理由
 
 推奨：
 
 ```text
-https://your-name.ngrok-free.dev/mcp
+https://YOUR_NGROK_DOMAIN/mcp
 + OAuth / PKCE
 ```
 
 非推奨：
 
 ```text
-https://your-name.ngrok-free.dev/mcp?token=...
+https://YOUR_NGROK_DOMAIN/mcp?token=...
 ```
 
-Query-string credential はデフォルトで無効です。また URL に credential を入れると、browser history や log などに残る可能性があります。stable public URL では built-in OAuth を利用できるため、URL token は不要です。
-
-> OAuth approval key と ngrok Auth Token は別物です。ngrok Token は ngrok のローカル設定に保存されます。OAuth approval key は、AgentDock が ChatGPT に workspace access を許可するか確認するためのキーです。
+Query-string credential は漏えいしやすく、デフォルトで無効です。stable public URL では built-in OAuth を利用してください。
 
 ## Tool Mode
 

@@ -40,102 +40,395 @@ AgentDock does not add a second server-side planning or execution layer. Plannin
 
 ## Requirements
 
-- Node.js 20+
-- Git
-- Python 3 for image processing
-- PyMuPDF (`pip install pymupdf`) for image preview/crop/tile operations
-- Optional: Cloudflare Tunnel, ngrok, or Tailscale for public HTTPS access
+For the recommended Windows + ChatGPT + ngrok setup, install:
 
-## Install and run
+- **Git** — used to clone AgentDock and inspect workspace changes.
+- **Node.js 20+** — `node -v` should report 20 or newer.
+- **Python 3** — used by the image/PDF helper workers.
+- **PyMuPDF** — required for PDF text/page rendering and image processing: `python -m pip install pymupdf`.
+- **ngrok** — recommended for a stable public HTTPS address that ChatGPT can reach.
+- A ChatGPT account/workspace that exposes **Developer Mode / custom MCP app** creation. Availability and UI labels vary by plan and rollout; see the current OpenAI help page linked below.
 
-From this repository:
+You do **not** need to buy a domain from Namecheap for the recommended path. A free ngrok account currently includes one account-assigned development domain. If you already own a custom domain, the Cloudflare named-tunnel route is an optional alternative.
 
-```bash
+## Zero-to-working deployment: Windows + ngrok + OAuth
+
+This section is intentionally verbose. It is written so that a person—or a coding agent such as Codex/Claude Code—can follow the deployment from a clean machine without guessing missing steps.
+
+### Step 0 — Know what will happen
+
+The final connection looks like this:
+
+```text
+ChatGPT
+  ↓ HTTPS + OAuth
+your ngrok development domain
+  ↓
+AgentDock HTTP/MCP server on your computer (default port 8787)
+  ↓
+one explicitly allowed local workspace
+```
+
+There are **three different credentials/identifiers** that are easy to confuse:
+
+| Item | Where it comes from | Where it is used | Keep private? |
+| --- | --- | --- | --- |
+| ngrok authtoken | ngrok Dashboard | `ngrok config add-authtoken ...` on your computer | **Yes** |
+| ngrok dev domain | ngrok Dashboard → Domains | AgentDock `--hostname` / setup wizard | No, it is a public hostname |
+| AgentDock OAuth approval key | AgentDock setup/start output | AgentDock consent page opened during ChatGPT OAuth | **Yes** |
+
+The **ngrok authtoken and AgentDock approval key are not the same thing**.
+
+### Step 1 — Clone AgentDock
+
+Open PowerShell, Windows Terminal, or another normal terminal:
+
+```powershell
+git clone https://github.com/Nippori709/AgentDock.git
+cd AgentDock
+```
+
+If the repository already exists locally, update it instead:
+
+```powershell
+git pull
+```
+
+### Step 2 — Install Node/Python dependencies and build
+
+From the AgentDock repository:
+
+```powershell
 npm install
+python -m pip install pymupdf
 npm run build
+```
+
+The build must finish without TypeScript errors. You can run the full local smoke suite as an optional sanity check:
+
+```powershell
+npm run smoke
+```
+
+For easier daily use, you may also install this local checkout as a global CLI:
+
+```powershell
+npm install -g .
+```
+
+That exposes the command `local-workspace-bridge`. If you skip this optional step, use `node scripts/local-workspace-bridge.mjs ...` in the commands below.
+
+### Step 3 — Create a free ngrok account and get your two ngrok values
+
+1. Create/sign in to an ngrok account.
+2. Open the ngrok Dashboard.
+3. Find your **authtoken**. This is a long secret string used only to authenticate the ngrok agent running on your computer.
+4. Open **Domains** and copy the development domain assigned to your account.
+
+Do not invent the domain or blindly copy the suffix from this README. ngrok has changed domain suffixes over time. Depending on the account, you may see something such as:
+
+```text
+example-name.ngrok-free.app
+```
+
+or an older assigned domain such as:
+
+```text
+example-name.ngrok-free.dev
+```
+
+**Copy exactly what the ngrok Dashboard shows for your account.** Free plans generally provide an assigned development domain; choosing a custom name or bringing your own custom domain may require a paid ngrok plan.
+
+> Namecheap is not part of this recommended free path. Namecheap only becomes relevant if you separately buy/own a custom domain and choose an advanced custom-domain deployment.
+
+### Step 4 — Install and authenticate ngrok on Windows
+
+ngrok currently recommends the Microsoft Store/WinGet path on Windows. One option is:
+
+```powershell
+winget install ngrok -s msstore
+```
+
+You can also install it from ngrok's official download page. After installation, verify:
+
+```powershell
+ngrok version
+```
+
+Then add the **ngrok authtoken** from Step 3:
+
+```powershell
+ngrok config add-authtoken "YOUR_NGROK_AUTHTOKEN"
+```
+
+Do not paste this token into README files, source code, screenshots, issues, or ChatGPT prompts.
+
+### Step 5 — Run the AgentDock setup wizard
+
+The easiest and least error-prone path is the interactive wizard:
+
+```powershell
 node scripts/local-workspace-bridge.mjs setup
 ```
 
-For a local-only MCP endpoint:
+If you installed the global CLI in Step 2, this is equivalent to:
 
-```bash
-node scripts/local-workspace-bridge.mjs start --tunnel none
+```powershell
+local-workspace-bridge setup
 ```
 
-For a normal ChatGPT workflow, run the setup wizard in the project you want to expose. It stores workspace-specific settings under `~/.local-workspace-bridge` and prints the MCP Server URL.
+The wizard asks several questions. For the normal ChatGPT + ngrok setup, use the following answers.
 
-## ChatGPT connection
+#### 5.1 `Where is your project located?`
 
-1. Start AgentDock in the target project.
-2. Use a stable HTTPS tunnel for a persistent ChatGPT connection.
-3. In ChatGPT Developer Mode / Plugins, add the Server URL printed by AgentDock.
-4. When OAuth is enabled, complete the local approval flow rather than placing credentials in the URL.
+Enter the folder that you actually want ChatGPT to inspect/edit, for example:
 
-A useful first prompt is:
+```text
+D:\Projects\MyApp
+```
+
+If you are intentionally exposing AgentDock itself, the AgentDock repository path is fine. Otherwise, do **not** accidentally expose the AgentDock source folder when you meant to expose another project.
+
+#### 5.2 `Which local port should LocalWorkspaceBridge use?`
+
+Press Enter to keep the default unless port `8787` is already occupied.
+
+Typical answer:
+
+```text
+8787
+```
+
+#### 5.3 `Public access: quick, stable, ngrok, tailscale, or local?`
+
+For this guide, enter:
+
+```text
+ngrok
+```
+
+The choices mean:
+
+- `quick` — temporary Cloudflare quick tunnel; easiest demo, but URL changes after restart.
+- `ngrok` — recommended here; reuse your account's stable ngrok development domain.
+- `stable` — Cloudflare named tunnel using a domain you control.
+- `tailscale` — Tailscale Funnel.
+- `local` — no public tunnel; ChatGPT on the web cannot normally reach `127.0.0.1` directly.
+
+#### 5.4 `Ngrok domain or URL, without /mcp`
+
+Paste the exact development domain copied from the ngrok Dashboard, for example:
+
+```text
+example-name.ngrok-free.app
+```
+
+Do **not** append `/mcp`; AgentDock adds the MCP route itself.
+
+#### 5.5 `LocalWorkspaceBridge auth token for this workspace`
+
+The wizard provides a generated random default. For a normal setup, **press Enter to accept it**.
+
+This saved secret is used by AgentDock's public HTTP authentication. When OAuth is active, the launcher prints it as the local **OAuth approval key** that you enter on the AgentDock consent page.
+
+Do not publish this value.
+
+#### 5.6 `Save this setup for future runs from this workspace?`
+
+Answer:
+
+```text
+yes
+```
+
+AgentDock saves the per-workspace profile under:
+
+```text
+~/.local-workspace-bridge
+```
+
+That is why later launches can reuse the same workspace, tunnel type, hostname, port, and local auth secret without asking everything again.
+
+#### 5.7 `Start LocalWorkspaceBridge now?`
+
+Answer:
+
+```text
+yes
+```
+
+### Step 6 — Read the startup output carefully
+
+A successful public OAuth launch prints a block containing values similar to:
+
+```text
+LocalWorkspaceBridge ready
+Workspace   D:\Projects\MyApp
+Server URL  https://YOUR_ASSIGNED_NGROK_DOMAIN/mcp
+Authentication: OAuth
+
+OAuth approval key (enter once on the LocalWorkspaceBridge consent page):
+
+  <private-generated-key>
+```
+
+Two values matter now:
+
+1. **Server URL** — copy the full HTTPS URL ending in `/mcp` into ChatGPT.
+2. **OAuth approval key** — keep the terminal open or copy the key somewhere private temporarily. You will enter it on AgentDock's own consent page during OAuth.
+
+Do **not** append `?token=...` to the Server URL. Query-string credentials are disabled by default and are easier to leak through browser history/logs.
+
+### Step 7 — Create the custom MCP app in ChatGPT
+
+ChatGPT's UI is changing over time and can differ by plan/workspace. Current OpenAI documentation generally describes the path as **Settings → Apps → Create** (or the equivalent workspace Apps page). Some accounts/builds may still expose a **Developer Mode / Plugins → +** flow.
+
+Use whichever custom-MCP creation UI your account exposes, then enter:
+
+```text
+Name: AgentDock
+Description: Local coding workspace bridge for ChatGPT
+Connection: Server URL
+Server URL: https://YOUR_ASSIGNED_NGROK_DOMAIN/mcp
+Authentication: OAuth
+```
+
+If the UI has **Scan Tools**, start the scan. Because the server uses OAuth, ChatGPT should open/redirect to AgentDock's authorization page.
+
+Current OpenAI help for Developer Mode/custom MCP apps:
+
+https://help.openai.com/en/articles/12584461-developer-mode-apps-and-full-mcp-connectors-in-chatgpt-beta
+
+> Plan availability changes over time. If your ChatGPT account does not offer custom MCP app creation or blocks write/modify tools, check the current OpenAI plan/workspace requirements before debugging AgentDock itself.
+
+### Step 8 — Approve the OAuth request
+
+On the AgentDock consent page:
+
+1. Confirm that **you** initiated this connection from ChatGPT.
+2. Check the requested client/redirect information.
+3. Paste the **AgentDock OAuth approval key** printed in your local terminal.
+4. Approve the request.
+
+Do not paste your ngrok authtoken here. The consent page wants the **AgentDock approval key**, not the ngrok credential.
+
+After approval, ChatGPT completes OAuth/PKCE and receives an access token. The MCP Server URL itself stays credential-free.
+
+### Step 9 — Verify the connection in ChatGPT
+
+Start with a read-only request:
 
 ```text
 Use AgentDock to open the current workspace, inspect the repository, and summarize the architecture. Do not edit files.
 ```
 
-## ChatGPT + ngrok + OAuth quick start
+Then verify a harmless tool such as `tree`, `search`, or `read`. Only after the read path works should you try write/edit/bash operations.
 
-This is the recommended public setup when you want a stable ChatGPT connection without putting a bearer token in the MCP URL.
+### Step 10 — Daily startup after the first setup
 
-### 1. Prepare ngrok
+If the profile was saved, you do **not** need to repeat the ngrok account setup or ChatGPT app creation each day.
 
-Install ngrok, sign in, and add your ngrok auth token locally:
+From the AgentDock checkout:
 
-`\bash
-ngrok config add-authtoken <your-ngrok-token>
-`
+```powershell
+node scripts/local-workspace-bridge.mjs start --root "D:\Projects\MyApp"
+```
 
-Create or reserve a stable ngrok domain in your ngrok account, for example your-name.ngrok-free.dev. Do not commit the ngrok auth token or any local ngrok configuration.
+Or, if you installed the global CLI:
 
-### 2. Build AgentDock
+```powershell
+cd D:\Projects\MyApp
+local-workspace-bridge start
+```
 
-`\bash
-npm install
-npm run build
-`
+The saved ngrok hostname remains the same, so the ChatGPT Server URL can remain unchanged.
 
-### 3. Start AgentDock with the stable ngrok hostname
+## Non-interactive ngrok launch
 
-`\bash
-node scripts/local-workspace-bridge.mjs ngrok --hostname your-name.ngrok-free.dev
-`
+Once ngrok is installed/authenticated and you know the assigned domain, you can skip the wizard and launch explicitly:
 
-The launcher starts the local MCP HTTP server, connects the reserved ngrok hostname, enables OAuth/PKCE for the public URL, and prints the credential-free MCP Server URL. It also prints a local **OAuth approval key**. Keep that key private; it is entered only on the AgentDock consent page when you approve a connection.
+```powershell
+node scripts/local-workspace-bridge.mjs ngrok --root "D:\Projects\MyApp" --hostname YOUR_ASSIGNED_NGROK_DOMAIN
+```
 
-### 4. Add it in ChatGPT
+For reproducible automation, prefer a saved workspace profile after the first interactive setup rather than putting private auth values directly on command lines.
 
-In ChatGPT Developer Mode / Plugins:
+## What a coding agent can and cannot automate
 
-1. Create or add an MCP connection using **Server URL**.
-2. Paste the Server URL printed by AgentDock, such as https://your-name.ngrok-free.dev/mcp.
-3. Choose **OAuth** authentication.
-4. Start the connection. ChatGPT will enter the OAuth authorization flow.
-5. On the AgentDock consent page, verify that you initiated the connection, enter the local OAuth approval key printed by the launcher, and approve it.
+If you ask Codex, Claude Code, or another local coding agent to deploy AgentDock from this README, it can usually automate:
 
-After approval, ChatGPT completes the OAuth/PKCE flow and uses the resulting access token for MCP requests. You do not need to append a bearer token to the Server URL.
+- cloning/pulling the repository;
+- checking Node.js, Python, Git, and ngrok availability;
+- running `npm install`, PyMuPDF installation, build, and smoke tests;
+- starting the AgentDock setup wizard or constructing the equivalent launch command;
+- diagnosing local port/process/build problems.
 
-### Why OAuth instead of a token in the URL?
+It normally **cannot safely invent or bypass** the account-interaction steps. Expect to perform or provide these yourself:
+
+1. Sign in/create the ngrok account.
+2. Copy the account's ngrok authtoken.
+3. Copy the exact assigned ngrok development domain.
+4. Enable the relevant Developer Mode/custom-app feature in ChatGPT if your plan/workspace requires it.
+5. Create/authorize the ChatGPT MCP app.
+6. Enter the locally printed AgentDock OAuth approval key on the consent page.
+
+A good prompt for a coding agent is:
+
+```text
+Clone https://github.com/Nippori709/AgentDock and deploy it by following README.md exactly.
+Use the recommended Windows + ngrok + OAuth path.
+Do not invent a domain, token, approval key, or ChatGPT account setting.
+Perform all local terminal steps yourself. When an ngrok/ChatGPT account action is required,
+tell me exactly what page/value you need, then continue from the value I provide.
+Run the documented build and smoke checks before declaring the deployment complete.
+```
+
+## Tunnel choices
+
+### Recommended: ngrok assigned development domain
+
+Use this when you want the simplest persistent URL. The free plan currently includes an account-assigned development domain. Your actual hostname may use a suffix different from examples in older AgentDock releases, so always copy it from the ngrok Dashboard.
+
+### Temporary demo: Cloudflare quick tunnel
+
+For a quick test with no stable URL requirement:
+
+```powershell
+node scripts/local-workspace-bridge.mjs start
+```
+
+The quick-tunnel URL can change after restart. If ChatGPT was configured with that URL, you must update the app/connector when the URL changes.
+
+### Advanced: your own domain + Cloudflare named tunnel
+
+If you already own a domain (for example one purchased from Namecheap), you can use a Cloudflare named tunnel. The domain must be configured appropriately in Cloudflare DNS. This is an advanced alternative; **buying a Namecheap domain is not required for AgentDock**.
+
+### Local-only
+
+For MCP clients running on the same computer:
+
+```powershell
+node scripts/local-workspace-bridge.mjs start --tunnel none
+```
+
+This does not provide a public HTTPS URL for ChatGPT web.
+
+## OAuth vs credentials in the URL
 
 Prefer:
 
-`\text
-https://your-name.ngrok-free.dev/mcp
+```text
+https://YOUR_ASSIGNED_NGROK_DOMAIN/mcp
 + OAuth / PKCE
-`
+```
 
-over URL credentials such as:
+instead of:
 
-`\text
-https://your-name.ngrok-free.dev/mcp?token=...
-`
+```text
+https://YOUR_ASSIGNED_NGROK_DOMAIN/mcp?token=...
+```
 
-Query-string credentials are disabled by default, can leak through browser/history/log surfaces, and are unnecessary when the stable public URL is using the built-in OAuth flow.
-
-> The OAuth approval key protects local consent; it is not your ngrok auth token. The ngrok token stays in ngrok's local configuration, while the AgentDock approval key is generated/managed by AgentDock for authorizing ChatGPT access.
+Query-string credentials are disabled by default, can leak through browser/history/log surfaces, and are unnecessary when the stable public URL uses AgentDock's OAuth flow.
 
 ## Tool modes
 
