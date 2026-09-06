@@ -60,7 +60,10 @@ let stderr = '';
 child.stderr.on('data', (chunk) => { stderr += String(chunk); });
 
 try {
-  await waitFor(`${baseUrl}/api/health`);
+  const healthResponse = await waitFor(`${baseUrl}/api/health`);
+  const health = await healthResponse.json();
+  if (health.service !== 'agentdock-control-center') throw new Error('control server health identity missing');
+
   const page = await (await fetch(`${baseUrl}/`)).text();
   if (!page.includes('AgentDock Control Center')) throw new Error('renderer index did not load');
   const stateResponse = await fetch(`${baseUrl}/api/state`);
@@ -69,7 +72,23 @@ try {
   const keys = Object.keys(state.config || {});
   const expected = ['defaultRoot', 'allowedRoots', 'bashMode', 'toolMode', 'writeMode'];
   if (JSON.stringify(keys) !== JSON.stringify(expected)) throw new Error(`unexpected config keys: ${keys.join(', ')}`);
+
+  const crossSite = await fetch(`${baseUrl}/api/restart-agentdock`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain', Origin: 'https://example.invalid' },
+    body: '{}'
+  });
+  if (crossSite.status !== 403) throw new Error(`cross-origin control mutation was not rejected: HTTP ${crossSite.status}`);
+
+  const wrongContentType = await fetch(`${baseUrl}/api/restart-agentdock`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain', Origin: baseUrl },
+    body: '{}'
+  });
+  if (wrongContentType.status !== 415) throw new Error(`non-JSON control mutation was not rejected: HTTP ${wrongContentType.status}`);
+
   console.log(`✓ AgentDock Control Center local server smoke passed on isolated port ${port}`);
+  console.log('✓ Control Center mutation endpoints reject cross-origin and non-JSON requests');
 } finally {
   child.kill('SIGTERM');
   await sleep(150);

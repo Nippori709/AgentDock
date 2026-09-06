@@ -42,6 +42,67 @@ node scripts/local-workspace-bridge.mjs setup
 
 Then open the desktop Control Center.
 
+## Using the Control Center UI
+
+The main window is intended to cover normal daily configuration without editing environment variables or restarting the MCP connection manually.
+
+### Default Root
+
+**Default Root** is the workspace AgentDock opens when ChatGPT calls `open_current_workspace` or when no explicit workspace is selected.
+
+- Type a path directly, or use the folder button to browse.
+- Changing Default Root normally hot-reloads the running AgentDock process.
+- The target root still needs a reusable AgentDock connection profile if the Control Center later has to start or restart AgentDock from scratch.
+
+### Allowed Roots
+
+**Allowed Roots** defines the directories ChatGPT is allowed to open as workspaces.
+
+- Click **Add** to choose another directory.
+- Use the row folder button to replace an existing directory.
+- Use **×** to remove a directory.
+- Narrowing Allowed Roots automatically closes already-open workspaces that are no longer inside the allowed boundary.
+
+The Default Root is always included in AgentDock's effective allowed-root set at runtime even if it is not duplicated manually in the list.
+
+### Bash Mode
+
+**Bash Mode** controls terminal command execution:
+
+- `off` — disables the Bash tool.
+- `safe` — recommended default; allows bounded verification commands and blocks higher-risk shell patterns.
+- `full` — broad shell access for trusted repositories only. The UI shows a warning when this mode is selected.
+
+### Tool Mode
+
+**Tool Mode** controls the usable AgentDock tool surface:
+
+- `minimal` — compact direct coding loop.
+- `standard` — recommended default; adds repository analysis, search/tree, skills, and workspace management.
+- `full` — exposes advanced diagnostics and Git/detail tools.
+
+AgentDock keeps the MCP tool schema stable across runtime mode changes so the same ChatGPT conversation can continue without reconnecting. Calls that are disabled by the current policy are rejected at execution time.
+
+### Write Mode
+
+**Write Mode** controls direct file modification:
+
+- `workspace` — enables `write`, `edit`, and `apply_patch` inside guarded workspaces.
+- `off` — read-only mode for those direct write tools.
+
+### Apply button and status
+
+The status badge shows whether AgentDock is currently running and whether the live runtime matches the saved Control Center values.
+
+Press **Apply** after changing settings:
+
+- If AgentDock is already running and supports runtime configuration, the five settings are hot-reloaded in the same process.
+- If nothing changed, no restart occurs.
+- If AgentDock is stopped, the Control Center starts it from the saved profile and verifies the live configuration.
+- Older AgentDock versions that do not expose runtime hot reload fall back to the compatibility restart path.
+
+Progress and errors are displayed in the window while the operation is running. The UI disables configuration controls during an active apply operation so normal users cannot accidentally submit overlapping changes.
+
 ## How applying settings works
 
 When AgentDock is already running, the Control Center sends the five settings to the authenticated local runtime endpoint:
@@ -61,6 +122,14 @@ The runtime updates the existing AgentDock process in place:
 If Allowed Roots becomes narrower, workspaces outside the new boundary are closed. The same ChatGPT conversation can open another allowed workspace without reconnecting the MCP app.
 
 When AgentDock is not running, the background supervisor starts it from the saved AgentDock workspace profile and verifies the live configuration.
+
+The Control Center HTTP server listens only on loopback. Configuration-changing requests are additionally restricted to the local Control Center origin and JSON requests so an unrelated web page cannot silently post runtime changes to the local control port.
+
+## Background supervisor
+
+The Windows sign-in shortcut starts the Control Center in supervisor mode without opening the UI. It periodically checks the saved AgentDock instance and attempts recovery when the process exists but its local service is unavailable, or when the saved instance is not running.
+
+Normal Control Center apply/restart operations temporarily pause supervisor recovery so the two maintenance paths do not compete with each other.
 
 ## Local files
 
@@ -112,4 +181,4 @@ npm run control-center:layout
 
 The layout test verifies that the main 760×680 app window fits without page scrolling.
 
-The runtime integration tests verify that core configuration changes hot-reload without restarting the MCP process.
+The runtime integration tests verify that core configuration changes hot-reload without restarting the MCP process. GitHub Actions also runs the Control Center test/smoke/layout suites on the supported Windows/Linux Node.js matrix.

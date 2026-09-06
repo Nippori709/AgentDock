@@ -132,9 +132,13 @@ export function normalizeAndValidateConfig(raw) {
 function discoverInitialConfig() {
   const live = listLiveRuntimes()[0];
   if (live?.root && fs.existsSync(live.root)) {
+    let allowedRoots = [live.root];
+    try {
+      allowedRoots = allowedRootsFromRuntimeProcess(live);
+    } catch {}
     return {
       defaultRoot: live.root,
-      allowedRoots: [live.root],
+      allowedRoots,
       bashMode: BASH_MODES.has(live.bash) ? live.bash : 'safe',
       toolMode: TOOL_MODES.has(live.toolMode) ? live.toolMode : 'standard',
       writeMode: WRITE_MODES.has(live.write) ? live.write : 'workspace'

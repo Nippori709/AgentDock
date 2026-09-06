@@ -9,6 +9,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.AGENTDOCK_CONTROL_PORT || 48731);
 const BASE_URL = `http://${HOST}:${PORT}`;
+const LOCAL_ORIGINS = new Set([BASE_URL, `http://localhost:${PORT}`]);
+const LOCAL_HOSTS = new Set([`${HOST}:${PORT}`, `localhost:${PORT}`]);
 const RENDERER_DIR = path.join(__dirname, 'renderer');
 const APP_WIDTH = 760;
 const APP_HEIGHT = 680;
@@ -30,6 +32,33 @@ const MIME = {
   '.png': 'image/png',
   '.svg': 'image/svg+xml'
 };
+
+function requestError(statusCode, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+function assertLocalHost(req) {
+  const host = String(req.headers.host || '').toLowerCase();
+  if (!LOCAL_HOSTS.has(host)) {
+    throw requestError(403, '拒绝非本机 Control Center Host。');
+  }
+}
+
+function assertControlMutationRequest(req) {
+  const origin = String(req.headers.origin || '');
+  if (!LOCAL_ORIGINS.has(origin)) {
+    throw requestError(403, '拒绝非同源 Control Center 写请求。');
+  }
+  const contentType = String(req.headers['content-type'] || '').split(';', 1)[0].trim().toLowerCase();
+  if (contentType !== 'application/json') {
+    throw requestError(415, 'Control Center 写请求必须使用 application/json。');
+  }
+  if (maintenanceBusy) {
+    throw requestError(409, '已有配置维护操作正在执行，请稍后重试。');
+  }
+}
 
 function sendJson(res, status, payload) {
   const body = JSON.stringify(payload);
@@ -53,7 +82,7 @@ async function readRequestJson(req, maxBytes = 64 * 1024) {
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > maxBytes) throw new Error('请求内容过大。');
+    if (size > maxBytes) throw requestError(413, '请求内容过大。');
     chunks.push(chunk);
   }
   if (!chunks.length) return {};
@@ -153,9 +182,10 @@ function serveStatic(req, res) {
 
 const server = http.createServer(async (req, res) => {
   try {
+    assertLocalHost(req);
     const url = new URL(req.url, BASE_URL);
     if (req.method === 'GET' && url.pathname === '/api/health') {
-      sendJson(res, 200, { ok: true, pid: process.pid });
+      sendJson(res, 200, { ok: true, pid: process.pid, service: 'agentdock-control-center' });
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/state') {
@@ -180,9 +210,10 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/apply') {
-      const body = await readRequestJson(req);
+      assertControlMutationRequest(req);
       maintenanceBusy = true;
       try {
+        const body = await readRequestJson(req);
         const result = await applyConfig(body, (stage, message) => broadcast(stage, message));
         sendJson(res, 200, result);
       } finally {
@@ -191,6 +222,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/restart-agentdock') {
+      assertControlMutationRequest(req);
       maintenanceBusy = true;
       try {
         const result = await restartAgentDock((stage, message) => broadcast(stage, message));
@@ -207,8 +239,9 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 405, { error: 'method_not_allowed' });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
     broadcast('error', message);
-    sendJson(res, 500, { error: message });
+    sendJson(res, statusCode, { error: message });
   }
 });
 
@@ -229,8 +262,11 @@ server.on('error', async (error) => {
     try {
       const response = await fetch(`${BASE_URL}/api/health`);
       if (response.ok) {
-        if (process.env.AGENTDOCK_CONTROL_NO_OPEN !== '1') openAppWindow();
-        process.exit(0);
+        const payload = await response.json().catch(() => null);
+        if (payload?.service === 'agentdock-control-center') {
+          if (process.env.AGENTDOCK_CONTROL_NO_OPEN !== '1') openAppWindow();
+          process.exit(0);
+        }
       }
     } catch {}
   }
