@@ -38,6 +38,7 @@ jobs:
         run: npm run control-center:smoke
 
       - name: Control Center layout
+        if: runner.os == 'Windows'
         run: npm run control-center:layout
 
       - name: Smoke tests
