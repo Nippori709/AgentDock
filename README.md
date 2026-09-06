@@ -37,6 +37,7 @@ AgentDock does not add a second server-side planning or execution layer. Plannin
 - **Multiple workspaces** — open, list, close, and switch the default workspace inside an allowed root set.
 - **Optional local Codex history reads** — disabled by default and only enabled explicitly.
 - **Linux service support** — saved stable profiles can run as a per-workspace `systemd --user` service.
+- **Windows Control Center** — a bundled desktop UI can change Default Root, Allowed Roots, Bash Mode, Tool Mode, and Write Mode without restarting the MCP server.
 
 ## Requirements
 
@@ -50,6 +51,37 @@ For the recommended Windows + ChatGPT + ngrok setup, install:
 - A ChatGPT account/workspace that exposes **Developer Mode / custom MCP app** creation. Availability and UI labels vary by plan and rollout; see the current OpenAI help page linked below.
 
 You do **not** need to buy a domain from Namecheap for the recommended path. A free ngrok account currently includes one account-assigned development domain. If you already own a custom domain, the Cloudflare named-tunnel route is an optional alternative.
+
+## Windows Control Center
+
+On Windows 10/11, AgentDock includes a desktop Control Center for the five most frequently changed workspace and permission settings:
+
+- Default Root
+- Allowed Roots
+- Bash Mode
+- Tool Mode
+- Write Mode
+
+After cloning the repository:
+
+```powershell
+npm install
+npm run control-center:install
+```
+
+The install command builds AgentDock, creates an **AgentDock Control Center** desktop shortcut, and installs a background supervisor at Windows sign-in.
+
+The repository does not contain a hard-coded Node path or user home path. The installer records the Node executable that is actually running on that machine into the generated local shortcuts.
+
+When AgentDock is already running, the Control Center hot-reloads the five core settings through the local runtime configuration endpoint. The AgentDock process, tunnel, port, and MCP session stay online, so an existing ChatGPT Web conversation can continue using the same connection after the settings change.
+
+If this is a fresh machine with no saved AgentDock workspace profile yet, run the normal setup once before relying on the Control Center to start AgentDock:
+
+```powershell
+node scripts/local-workspace-bridge.mjs setup
+```
+
+See [control-center/README.md](control-center/README.md) for install, uninstall, startup-supervisor, and verification details.
 
 ## Zero-to-working deployment: Windows + ngrok + OAuth
 
