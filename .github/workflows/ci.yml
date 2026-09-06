@@ -25,22 +25,11 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Python smoke dependencies
-        run: python -m pip install pymupdf
-
       - name: Install
         run: npm ci
 
       - name: Build
         run: npm run build
-
-      - name: Smoke tests
-        run: npm run smoke
 
       - name: Control Center tests
         run: npm run control-center:test
@@ -50,6 +39,9 @@ jobs:
 
       - name: Control Center layout
         run: npm run control-center:layout
+
+      - name: Smoke tests
+        run: npm run smoke
 
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high
