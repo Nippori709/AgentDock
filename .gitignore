@@ -15,3 +15,4 @@ Thumbs.db
 **/_logs/
 **/npm-cache/
 benchmarks/results/
+control-center/preview.png

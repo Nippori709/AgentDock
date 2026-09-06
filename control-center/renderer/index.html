@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:;">
+  <title>AgentDock Control Center</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <h1>AgentDock Control Center</h1>
+        <p>5 项核心配置 · 修改后一次生效</p>
+      </div>
+      <div id="statusBadge" class="status-badge status-loading">
+        <span class="status-dot"></span>
+        <span id="statusText">读取中</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="card">
+        <div class="card-title">
+          <span>工作区</span>
+          <small>Root / Allowed Roots</small>
+        </div>
+
+        <div class="field">
+          <label for="rootInput">默认根目录</label>
+          <div class="path-row">
+            <input id="rootInput" type="text" spellcheck="false" autocomplete="off">
+            <button id="browseRootBtn" type="button" class="ghost-btn">浏览</button>
+          </div>
+        </div>
+
+        <div class="field allowed-field">
+          <div class="label-row">
+            <label>允许访问目录</label>
+            <button id="addAllowedBtn" type="button" class="text-btn">+ 添加</button>
+          </div>
+          <div id="allowedRootsList" class="allowed-list"></div>
+          <div id="emptyAllowed" class="empty-line">无额外目录；默认根目录仍可访问</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-title">
+          <span>权限</span>
+          <small>Bash / Tools / Write</small>
+        </div>
+
+        <div class="mode-row">
+          <div class="mode-label">Bash</div>
+          <div class="segmented three">
+            <label><input type="radio" name="bashMode" value="off"><span>Off</span></label>
+            <label><input type="radio" name="bashMode" value="safe"><span>Safe</span></label>
+            <label><input type="radio" name="bashMode" value="full"><span>Full</span></label>
+          </div>
+        </div>
+        <div id="bashWarning" class="warning-line" hidden>Full Bash 可访问系统与网络</div>
+
+        <div class="mode-row">
+          <div class="mode-label">Tools</div>
+          <div class="segmented three">
+            <label><input type="radio" name="toolMode" value="minimal"><span>Minimal</span></label>
+            <label><input type="radio" name="toolMode" value="standard"><span>Standard</span></label>
+            <label><input type="radio" name="toolMode" value="full"><span>Full</span></label>
+          </div>
+        </div>
+
+        <div class="mode-row">
+          <div class="mode-label">Write</div>
+          <div class="segmented two">
+            <label><input type="radio" name="writeMode" value="off"><span>只读</span></label>
+            <label><input type="radio" name="writeMode" value="workspace"><span>Workspace</span></label>
+          </div>
+        </div>
+      </section>
+
+      <section class="action-card">
+        <div>
+          <div id="applyTitle" class="apply-title">配置就绪</div>
+          <div id="applyMessage" class="apply-message">核心配置热更新，不重启 MCP，也不打断当前 ChatGPT 对话。</div>
+        </div>
+        <button id="applyBtn" type="button" class="primary-btn">
+          <span class="button-label">确定并生效</span>
+          <span class="button-spinner" aria-hidden="true"></span>
+        </button>
+      </section>
+
+      <div id="resultBanner" class="result-banner" role="status" aria-live="polite" hidden></div>
+    </main>
+  </div>
+
+  <div id="folderModal" class="modal-backdrop" hidden>
+    <section class="folder-modal" role="dialog" aria-modal="true" aria-labelledby="folderModalTitle">
+      <header class="modal-header">
+        <div>
+          <h2 id="folderModalTitle">选择文件夹</h2>
+          <p id="folderModalHint">在 Control Center 内浏览目录</p>
+        </div>
+        <button id="folderCloseBtn" type="button" class="close-btn" aria-label="关闭">×</button>
+      </header>
+
+      <div class="folder-toolbar">
+        <button id="folderComputerBtn" type="button" class="ghost-btn small">此电脑</button>
+        <button id="folderUpBtn" type="button" class="ghost-btn small">上一级</button>
+        <div class="folder-path-box">
+          <input id="folderPathInput" type="text" spellcheck="false" autocomplete="off" placeholder="输入目录路径">
+          <button id="folderGoBtn" type="button" class="ghost-btn small">前往</button>
+        </div>
+      </div>
+
+      <div id="folderCurrent" class="folder-current"></div>
+      <div id="folderList" class="folder-list"></div>
+      <div id="folderError" class="folder-error" hidden></div>
+
+      <footer class="modal-footer">
+        <button id="folderCancelBtn" type="button" class="ghost-btn">取消</button>
+        <button id="folderSelectBtn" type="button" class="primary-btn compact">选择当前文件夹</button>
+      </footer>
+    </section>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>

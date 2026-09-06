@@ -1,0 +1,17 @@
+{
+  "name": "agentdock-control-center",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test test/controller.test.mjs",
+    "smoke": "node scripts/apply-smoke.mjs && node scripts/control-server-smoke.mjs && node scripts/integration-smoke.mjs",
+    "layout": "node scripts/layout-smoke.mjs",
+    "preview": "node scripts/preview.mjs",
+    "install": "node scripts/install.mjs",
+    "uninstall": "node scripts/uninstall.mjs"
+  }
+}
