@@ -37,6 +37,7 @@ AgentDock 不额外实现第二套服务端规划/执行层，规划职责保持
 - **多工作区**：可以打开、列出、关闭和切换允许范围内的项目。
 - **可选 Codex 历史读取**：默认关闭，仅在用户主动启用后读取本机 Codex session metadata / transcript。
 - **Linux 服务化**：稳定 Tunnel profile 可安装为 `systemd --user` 服务。
+- **Windows Control Center**：仓库内置桌面可视化控制中心，可直接修改 Default Root、Allowed Roots、Bash Mode、Tool Mode 和 Write Mode，并支持运行时热更新。
 
 ## 环境要求
 
@@ -50,6 +51,40 @@ AgentDock 不额外实现第二套服务端规划/执行层，规划职责保持
 - 一个能够创建 **Developer Mode / 自定义 MCP App** 的 ChatGPT 账号或工作区。OpenAI 的入口名称和套餐要求会变化，README 后面给了官方文档链接。
 
 > 推荐路线**不需要去 Namecheap 买域名**。ngrok 免费账号目前会给一个账号级的开发域名。只有你本来就有自定义域名，并且想走 Cloudflare named tunnel 时，Namecheap 这类域名注册商才可能参与进来。
+
+## Windows Control Center
+
+Windows 10/11 可以直接使用仓库内置的 AgentDock Control Center，可视化管理五项最常改的核心配置：
+
+- Default Root
+- Allowed Roots
+- Bash Mode
+- Tool Mode
+- Write Mode
+
+从 GitHub clone 仓库后，在仓库根目录执行：
+
+```powershell
+npm install
+npm run control-center:install
+```
+
+安装命令会先构建 AgentDock，然后自动创建：
+
+- 桌面快捷方式：**AgentDock Control Center**
+- Windows 登录自启动后台项：**AgentDock Control Supervisor**
+
+仓库代码里不会写死某个用户的 `C:\Users\...`、Codex runtime 或 Node 安装路径。安装器会在用户自己的电脑上读取当前真正运行的 Node 路径，并只把这个本机路径写进生成的 Windows 快捷方式。
+
+AgentDock 已运行时，Control Center 会通过本机 runtime config 接口热更新这五项核心参数，AgentDock PID、8787 端口、Tunnel 和 MCP Session 都不需要重启。因此在 ChatGPT 网页端修改配置后，原有对话可以直接继续调用同一个 AgentDock 连接。
+
+如果是全新电脑，还没有任何 AgentDock workspace profile，请先正常执行一次：
+
+```powershell
+node scripts/local-workspace-bridge.mjs setup
+```
+
+完整安装、卸载、自启动 Supervisor 和测试说明见 [control-center/README.md](control-center/README.md)。
 
 ## 从零部署：Windows + ngrok + OAuth（推荐）
 

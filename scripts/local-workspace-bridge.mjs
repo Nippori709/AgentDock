@@ -370,14 +370,15 @@ function optionalWriteOption(args, profile, mode) {
 function commandExists(command) {
   const result = spawnSync(process.platform === 'win32' ? 'where' : 'command', process.platform === 'win32' ? [command] : ['-v', command], {
     shell: process.platform !== 'win32',
-    stdio: 'ignore'
+    stdio: 'ignore',
+    windowsHide: true
   });
   return result.status === 0;
 }
 
 function commandPaths(command) {
   if (process.platform === 'win32') {
-    const result = spawnSync('where', [command], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const result = spawnSync('where', [command], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
     if (result.status !== 0) return [];
     return String(result.stdout).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   }
@@ -699,7 +700,8 @@ function verifyCloudflared(binaryPath) {
   const result = spawnSync(executable.command, executable.args, {
     stdio: 'ignore',
     shell: false,
-    timeout: 15000
+    timeout: 15000,
+    windowsHide: true
   });
   if (result.status !== 0) {
     throw new Error(`Downloaded cloudflared, but ${binaryPath} --version failed.`);
@@ -726,7 +728,8 @@ async function installCloudflaredLocal() {
       const tar = spawnSync('tar', ['-xzf', archivePath, '-C', extractDir], {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe'],
-        shell: false
+        shell: false,
+        windowsHide: true
       });
       if (tar.status !== 0) {
         throw new Error(`Failed to extract ${asset.file}: ${tar.stderr || tar.stdout || `exit ${tar.status}`}`);
@@ -789,7 +792,8 @@ function verifyNgrok(binaryPath) {
   const result = spawnSync(executable.command, executable.args, {
     stdio: 'ignore',
     shell: false,
-    timeout: 15000
+    timeout: 15000,
+    windowsHide: true
   });
   if (result.status !== 0) {
     throw new Error(`ngrok was found, but ${binaryPath} version failed. Run ngrok version to inspect it.`);
@@ -820,7 +824,8 @@ function verifyTailscale(binaryPath) {
   const result = spawnSync(executable.command, executable.args, {
     stdio: 'ignore',
     shell: false,
-    timeout: 15000
+    timeout: 15000,
+    windowsHide: true
   });
   if (result.status !== 0) {
     throw new Error(`tailscale was found, but ${binaryPath} version failed. Run tailscale version to inspect it.`);
@@ -932,7 +937,7 @@ const spawnedChildren = new Set();
 function spawnLogged(name, command, args, options = {}) {
   const { verbose = false, ...spawnOptions } = options;
   const executable = executableCommand(command, args);
-  const child = spawn(executable.command, executable.args, { ...spawnOptions, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(executable.command, executable.args, { ...spawnOptions, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   const logLines = [];
   const record = (stream, chunk) => {
     const text = redactForLog(String(chunk));

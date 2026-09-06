@@ -142,6 +142,23 @@ export class WorkspaceManager {
     return workspace;
   }
 
+  reconcileRuntimeConfig(options: { resetDefault?: boolean } = {}): { closedWorkspaceIds: string[] } {
+    const closedWorkspaceIds: string[] = [];
+    for (const [id, workspace] of this.workspaces) {
+      const allowed = this.config.allowedRoots.some((allowedRoot) => isSubpath(workspace.root, allowedRoot));
+      if (allowed) continue;
+      this.workspaces.delete(id);
+      closedWorkspaceIds.push(id);
+      if (this.activeWorkspaceId === id) this.activeWorkspaceId = undefined;
+      if (this.selectedDefaultWorkspaceId === id) this.selectedDefaultWorkspaceId = undefined;
+    }
+    if (options.resetDefault) {
+      this.activeWorkspaceId = undefined;
+      this.selectedDefaultWorkspaceId = undefined;
+    }
+    return { closedWorkspaceIds };
+  }
+
   private touch(workspace: Workspace): Workspace {
     workspace.lastUsedAt = new Date().toISOString();
     this.activeWorkspaceId = workspace.id;

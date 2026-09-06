@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createHash, randomUUID } from "node:crypto";
 import { timingSafeEqual } from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
 import cors from "cors";
@@ -21,7 +22,7 @@ import {
   type WorkspaceProfile
 } from "./profileStore.js";
 import { redactSensitiveText, redactStructured } from "./redact.js";
-import { createLocalWorkspaceBridgeServer } from "./server.js";
+import { createLocalWorkspaceBridgeServer, reconcileLocalWorkspaceBridgeRuntimeConfig } from "./server.js";
 import { createLocalWorkspaceBridgeOAuth } from "./oauth.js";
 import { applyToolSecuritySchemeCompat, patchModernToolSecuritySchemes } from "./transportCompat.js";
 
@@ -87,6 +88,14 @@ const AdminProfilePatch = z.object({
   noInstallCloudflared: z.boolean().optional()
 }).strict();
 
+const RuntimeCoreConfigPatch = z.object({
+  defaultRoot: z.string().min(1).max(4096),
+  allowedRoots: z.array(z.string().min(1).max(4096)).max(128),
+  bashMode: z.enum(BASH_MODES),
+  toolMode: z.enum(TOOL_MODES),
+  writeMode: z.enum(WRITE_MODES)
+}).strict();
+
 type AdminProfilePatch = z.infer<typeof AdminProfilePatch>;
 
 interface ProfileFormValues {
@@ -113,6 +122,39 @@ interface ProfileFormValues {
 
 function oneOf<T extends readonly string[]>(value: unknown, values: T, fallback: T[number]): T[number] {
   return typeof value === "string" && values.includes(value) ? value : fallback;
+}
+
+function runtimeRealDirectory(value: string, fieldName: string): string {
+  const expanded = expandHome(value.trim());
+  const resolved = path.resolve(expanded);
+  if (!fs.existsSync(resolved)) throw new Error(`${fieldName} does not exist: ${resolved}`);
+  if (!fs.statSync(resolved).isDirectory()) throw new Error(`${fieldName} is not a directory: ${resolved}`);
+  return fs.realpathSync(resolved);
+}
+
+function normalizeRuntimeCoreConfig(input: z.infer<typeof RuntimeCoreConfigPatch>): {
+  defaultRoot: string;
+  allowedRoots: string[];
+  bashMode: LocalWorkspaceBridgeConfig["bashMode"];
+  toolMode: LocalWorkspaceBridgeConfig["toolMode"];
+  writeMode: LocalWorkspaceBridgeConfig["writeMode"];
+} {
+  const defaultRoot = runtimeRealDirectory(input.defaultRoot, "defaultRoot");
+  const roots = [defaultRoot, ...input.allowedRoots.map((root) => runtimeRealDirectory(root, "allowedRoot"))];
+  const seen = new Set<string>();
+  const allowedRoots = roots.filter((root) => {
+    const key = process.platform === "win32" ? root.toLowerCase() : root;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return {
+    defaultRoot,
+    allowedRoots,
+    bashMode: input.bashMode,
+    toolMode: input.toolMode,
+    writeMode: input.writeMode
+  };
 }
 
 function runtimeTunnelFallback(): TunnelMode {
@@ -1650,6 +1692,43 @@ async function main(): Promise<void> {
       oauthEnabled: Boolean(oauth),
       publicUrl: config.publicUrl ?? null
     });
+  });
+
+  app.post("/admin/runtime-config", adminRateLimit, adminBodyLimit, express.json({ limit: "32kb" }), (req, res) => {
+    const parsed = RuntimeCoreConfigPatch.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      jsonError(res, 400, "invalid_runtime_config", "Invalid runtime core config.", parsed.error.flatten());
+      return;
+    }
+    try {
+      const next = normalizeRuntimeCoreConfig(parsed.data);
+      const previousDefaultRoot = config.defaultRoot;
+      config.defaultRoot = next.defaultRoot;
+      config.allowedRoots = next.allowedRoots;
+      config.bashMode = next.bashMode;
+      config.toolMode = next.toolMode;
+      config.writeMode = next.writeMode;
+      const reconciled = reconcileLocalWorkspaceBridgeRuntimeConfig(config, previousDefaultRoot);
+      res.json({
+        ok: true,
+        hotReloaded: true,
+        restarted: false,
+        defaultRoot: config.defaultRoot,
+        allowedRoots: config.allowedRoots,
+        bashMode: config.bashMode,
+        toolMode: config.toolMode,
+        writeMode: config.writeMode,
+        closedWorkspaceIds: reconciled.closedWorkspaceIds,
+        allowedTools: reconciled.allowedTools,
+        stableToolSchema: true
+      });
+    } catch (error) {
+      jsonError(res, 400, "invalid_runtime_config", error instanceof Error ? error.message : String(error));
+    }
+  });
+
+  app.all("/admin/runtime-config", (_req, res) => {
+    jsonError(res, 405, "method_not_allowed", "Use POST for /admin/runtime-config.");
   });
 
   app.get("/admin/profile", (_req, res) => {

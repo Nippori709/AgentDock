@@ -32,6 +32,7 @@
     "scripts/image-worker.py",
     "scripts/document-worker.py",
     "scripts/runtime/status.mjs",
+    "control-center/**",
     "README.md",
     "README_ZH.md",
     "README_JA.md",
@@ -55,7 +56,7 @@
     "start:http": "node dist/http.js",
     "dev:stdio": "tsx src/stdio.ts",
     "dev:http": "tsx src/http.ts",
-    "smoke": "node scripts/analysis-smoke.mjs && node scripts/analysis-cli-smoke.mjs && node scripts/shell-smoke.mjs && node scripts/linux-service-smoke.mjs && node scripts/image-smoke.mjs && node scripts/document-smoke.mjs && node scripts/smoke.mjs && node scripts/http-smoke.mjs",
+    "smoke": "node scripts/analysis-smoke.mjs && node scripts/analysis-cli-smoke.mjs && node scripts/shell-smoke.mjs && node scripts/linux-service-smoke.mjs && node scripts/image-smoke.mjs && node scripts/document-smoke.mjs && node scripts/smoke.mjs && node scripts/runtime-hot-smoke.mjs && node scripts/http-smoke.mjs",
     "benchmark": "npm run build && node benchmarks/run.mjs",
     "benchmark:quick": "npm run build && node benchmarks/run.mjs --quick",
     "proxy:smoke": "npm run build && node scripts/proxy-smoke.mjs",
@@ -66,7 +67,13 @@
     "connect:local": "node scripts/local-workspace-bridge.mjs --tunnel none",
     "connect:cloudflare": "node scripts/local-workspace-bridge.mjs --tunnel cloudflare",
     "connect:ngrok": "node scripts/local-workspace-bridge.mjs ngrok",
-    "connect:tailscale": "node scripts/local-workspace-bridge.mjs tailscale"
+    "connect:tailscale": "node scripts/local-workspace-bridge.mjs tailscale",
+    "control-center:start": "node control-center/server.mjs",
+    "control-center:test": "node --test control-center/test/controller.test.mjs",
+    "control-center:smoke": "node control-center/scripts/apply-smoke.mjs && node control-center/scripts/control-server-smoke.mjs && node control-center/scripts/integration-smoke.mjs",
+    "control-center:layout": "node control-center/scripts/layout-smoke.mjs",
+    "control-center:install": "npm run build && node control-center/scripts/install.mjs",
+    "control-center:uninstall": "node control-center/scripts/uninstall.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/node": "^2.0.0",

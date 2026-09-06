@@ -543,6 +543,14 @@ function shouldRegisterTool(config: LocalWorkspaceBridgeConfig, name: string): b
   return STANDARD_TOOLS.has(name);
 }
 
+function shouldCreateStableTool(config: LocalWorkspaceBridgeConfig, name: string): boolean {
+  if (config.connectionTest && CONNECTION_TEST_HIDDEN_TOOLS.has(name)) return false;
+  if (name === "codex_sessions") return config.codexSessions !== "off";
+  if (name === "read_codex_session") return config.codexSessions === "read";
+  if (name === "inspect_workspace" && !config.analysisEnabled) return false;
+  return true;
+}
+
 function registerCodexTool(
   config: LocalWorkspaceBridgeConfig,
   server: McpServer,
@@ -550,8 +558,16 @@ function registerCodexTool(
   options: Record<string, unknown>,
   handler: CodexToolHandler
 ): void {
-  if (!shouldRegisterTool(config, name)) return;
-  const validatedHandler: CodexToolHandler = (args) => handler(validateToolArgs(name, options, args));
+  if (!shouldCreateStableTool(config, name)) return;
+  const validatedHandler: CodexToolHandler = (args) => {
+    if (!shouldRegisterTool(config, name)) {
+      throw new LocalWorkspaceBridgeError(
+        `Tool is disabled by the current runtime policy: ${name}. ` +
+          `Current modes: tool=${config.toolMode}, bash=${config.bashMode}, write=${config.writeMode}.`
+      );
+    }
+    return handler(validateToolArgs(name, options, args));
+  };
   registerToolCompat(config, server, name, descriptorOptionsForConfig(config, name, options), validatedHandler);
   rememberRegisteredTool(server, name);
   rememberRegisteredToolHandler(server, name, validatedHandler);
@@ -1094,6 +1110,27 @@ function getSharedWorkspaceManager(config: LocalWorkspaceBridgeConfig): Workspac
   return manager;
 }
 
+function sameConfiguredPath(left: string, right: string): boolean {
+  const a = path.resolve(left);
+  const b = path.resolve(right);
+  return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
+export function reconcileLocalWorkspaceBridgeRuntimeConfig(
+  config: LocalWorkspaceBridgeConfig,
+  previousDefaultRoot: string
+): { closedWorkspaceIds: string[]; allowedTools: string[] } {
+  const resetDefault = !sameConfiguredPath(previousDefaultRoot, config.defaultRoot);
+  const closedWorkspaceIds: string[] = [];
+  for (const manager of workspaceManagers.values()) {
+    const result = manager.reconcileRuntimeConfig({ resetDefault });
+    for (const id of result.closedWorkspaceIds) {
+      if (!closedWorkspaceIds.includes(id)) closedWorkspaceIds.push(id);
+    }
+  }
+  return { closedWorkspaceIds, allowedTools: toolNamesForMode(config) };
+}
+
 export function createLocalWorkspaceBridgeServer(config: LocalWorkspaceBridgeConfig): McpServer {
   const workspaces = getSharedWorkspaceManager(config);
   const guard = new PathGuard(config);
@@ -1244,6 +1281,8 @@ export function createLocalWorkspaceBridgeServer(config: LocalWorkspaceBridgeCon
         analysisIgnoreGlobs: config.analysisIgnoreGlobs,
         registeredTools: registeredToolNames(server),
         registeredToolCount: registeredToolNames(server).length,
+        allowedTools: toolNamesForMode(config),
+        allowedToolCount: toolNamesForMode(config).length,
         securityWarnings
       };
       return textResult(`# LocalWorkspaceBridge Server Config\n\n${JSON.stringify(safeConfig, null, 2)}`, safeConfig);
