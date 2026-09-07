@@ -7,11 +7,12 @@
   },
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test test/controller.test.mjs",
+    "test": "node --test test/controller.test.mjs test/runtime-node.test.mjs",
     "smoke": "node scripts/apply-smoke.mjs && node scripts/control-server-smoke.mjs && node scripts/integration-smoke.mjs",
     "layout": "node scripts/layout-smoke.mjs",
     "preview": "node scripts/preview.mjs",
     "install": "node scripts/install.mjs",
+    "doctor": "node scripts/doctor.mjs",
     "uninstall": "node scripts/uninstall.mjs"
   }
 }
