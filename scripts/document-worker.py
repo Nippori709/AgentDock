@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Bounded PDF/DOCX extraction and PDF page rendering for AgentDock."""
 
+import contextlib
 import json
 import sys
 import zipfile
@@ -21,9 +22,25 @@ def emit_json(value: dict) -> None:
 
 def load_fitz():
     try:
-        import fitz
+        # Prefer the canonical PyMuPDF namespace. The legacy ``fitz`` alias can
+        # collide with the unrelated ``fitz`` package and some older builds
+        # emit import-time noise that would corrupt the worker stdout protocol.
+        with contextlib.redirect_stdout(sys.stderr):
+            import pymupdf as fitz
     except ImportError:
-        fail("PyMuPDF is not installed. Install it with: python -m pip install pymupdf")
+        try:
+            # Keep compatibility with older PyMuPDF releases that only expose
+            # the historical ``fitz`` module name.
+            with contextlib.redirect_stdout(sys.stderr):
+                import fitz
+        except ImportError:
+            fail("PyMuPDF is not installed. Install it with: python -m pip install pymupdf")
+
+    if not hasattr(fitz, "open") or not hasattr(fitz, "Matrix"):
+        fail(
+            "Imported PDF module is not a compatible PyMuPDF runtime. "
+            "Install/upgrade it with: python -m pip install -U pymupdf"
+        )
     return fitz
 
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Inspect or render bounded JPEG image previews/crops with PyMuPDF."""
 
+import contextlib
 import json
 import sys
 
@@ -12,9 +13,22 @@ def fail(message: str) -> None:
 
 def load_fitz():
     try:
-        import fitz
+        # Prefer the canonical module name to avoid legacy ``fitz`` package
+        # collisions and import-time stdout noise.
+        with contextlib.redirect_stdout(sys.stderr):
+            import pymupdf as fitz
     except ImportError:
-        fail("PyMuPDF is not installed. Install it with: python -m pip install pymupdf")
+        try:
+            with contextlib.redirect_stdout(sys.stderr):
+                import fitz
+        except ImportError:
+            fail("PyMuPDF is not installed. Install it with: python -m pip install pymupdf")
+
+    if not all(hasattr(fitz, name) for name in ("open", "Matrix", "Rect")):
+        fail(
+            "Imported image module is not a compatible PyMuPDF runtime. "
+            "Install/upgrade it with: python -m pip install -U pymupdf"
+        )
     return fitz
 
 

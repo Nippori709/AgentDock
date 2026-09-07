@@ -57,7 +57,10 @@ const fixtureScript = String.raw`
 import sys, zipfile
 from pathlib import Path
 root = Path(sys.argv[1])
-import fitz
+try:
+    import pymupdf as fitz
+except ImportError:
+    import fitz
 pdf = fitz.open()
 page = pdf.new_page()
 page.insert_text((72, 72), "Hello PDF page one")
@@ -78,6 +81,30 @@ const fixture = spawnSync(pythonExecutable(), ['-c', fixtureScript, root], { enc
 if (fixture.status !== 0) {
   throw new Error(`unable to create document fixtures: ${fixture.stderr || fixture.stdout}`);
 }
+
+const directPdf = spawnSync(
+  pythonExecutable(),
+  ['scripts/document-worker.py', 'pdf-text', path.join(root, 'sample.pdf'), '1', '0', '60000'],
+  {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PYTHONIOENCODING: 'utf-8',
+      PYTHONUTF8: '1',
+      PYTHONWARNINGS: 'default'
+    }
+  }
+);
+assert(directPdf.status === 0, `document worker failed directly: ${directPdf.stderr || directPdf.stdout}`);
+let directPayload;
+try {
+  directPayload = JSON.parse(directPdf.stdout.trim());
+} catch (error) {
+  throw new Error(`document worker polluted stdout; expected pure JSON, got: ${JSON.stringify(directPdf.stdout)} (${error})`);
+}
+assert(directPayload.page_count === 2, 'direct document worker returned wrong page count');
+assert(directPayload.text?.includes('Hello PDF page one'), 'direct document worker missed page-one text');
+assert(directPayload.text?.includes('Second PDF page'), 'direct document worker missed page-two text');
 
 const client = new Client(root);
 try {
