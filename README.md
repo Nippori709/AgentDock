@@ -65,13 +65,15 @@ On Windows 10/11, AgentDock includes a desktop Control Center for the five most 
 After cloning the repository:
 
 ```powershell
-npm install
+npm ci
 npm run control-center:install
 ```
 
 The install command builds AgentDock, creates an **AgentDock Control Center** desktop shortcut, and installs a background supervisor at Windows sign-in.
 
-The repository does not contain a hard-coded Node path or user home path. The installer records the Node executable that is actually running on that machine into the generated local shortcuts.
+For reboot-safe startup, install a normal system/user Node.js 20+ runtime first. The installer validates Node candidates, rejects temporary/cache runtimes such as Codex `.cache/codex-runtimes`, verifies the runtime dependencies, and writes a stable Node executable into the generated shortcuts. The repository itself contains no hard-coded Node path or user home path.
+
+`npm run control-center:doctor` verifies the selected Node runtime, npm availability, AgentDock build, runtime dependencies, saved workspace profile, Windows sign-in shortcut, and the local Control Center/AgentDock endpoints.
 
 When AgentDock is already running, the Control Center hot-reloads the five core settings through the local runtime configuration endpoint. The AgentDock process, tunnel, port, and MCP session stay online, so an existing ChatGPT Web conversation can continue using the same connection after the settings change.
 
@@ -79,6 +81,12 @@ If this is a fresh machine with no saved AgentDock workspace profile yet, run th
 
 ```powershell
 node scripts/local-workspace-bridge.mjs setup
+```
+
+Then verify reboot-safe startup:
+
+```powershell
+npm run control-center:doctor
 ```
 
 See [control-center/README.md](control-center/README.md) for install, uninstall, startup-supervisor, and verification details.
