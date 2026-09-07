@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { resolveStableNodeRuntime, verifyRuntimeDependencies } from './runtime-node.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const controlRoot = path.resolve(__dirname, '..');
@@ -24,7 +25,9 @@ if (!fs.existsSync(runnerVbs) || !fs.existsSync(desktopScript)) {
   throw new Error('Control Center launcher files are incomplete.');
 }
 
-const nodePath = process.execPath;
+const runtimeSelection = resolveStableNodeRuntime();
+const nodePath = runtimeSelection.selected.path;
+verifyRuntimeDependencies(nodePath, repoRoot);
 const wscript = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'wscript.exe');
 if (!fs.existsSync(wscript)) throw new Error(`wscript.exe not found: ${wscript}`);
 
@@ -82,7 +85,11 @@ const hasProfile = fs.existsSync(profilesDir) && fs.readdirSync(profilesDir).som
 
 console.log('✓ AgentDock Control Center installed.');
 console.log(`  Desktop shortcut: ${String(result.stdout || '').trim()}`);
-console.log(`  Node runtime: ${nodePath}`);
+console.log(`  Node runtime: ${nodePath} (v${runtimeSelection.selected.version})`);
+if (path.resolve(process.execPath).toLowerCase() !== path.resolve(nodePath).toLowerCase()) {
+  console.log(`  Installer Node: ${process.execPath}`);
+  console.log('  Note: selected a different stable Node runtime for reboot-safe startup.');
+}
 if (!noStartup) console.log('  Background supervisor: enabled at Windows sign-in');
 if (!hasProfile) {
   console.log('');

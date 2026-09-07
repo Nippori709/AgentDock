@@ -65,7 +65,7 @@ Windows 10/11 可以直接使用仓库内置的 AgentDock Control Center，可�
 从 GitHub clone 仓库后，在仓库根目录执行：
 
 ```powershell
-npm install
+npm ci
 npm run control-center:install
 ```
 
@@ -74,7 +74,9 @@ npm run control-center:install
 - 桌面快捷方式：**AgentDock Control Center**
 - Windows 登录自启动后台项：**AgentDock Control Supervisor**
 
-仓库代码里不会写死某个用户的 `C:\Users\...`、Codex runtime 或 Node 安装路径。安装器会在用户自己的电脑上读取当前真正运行的 Node 路径，并只把这个本机路径写进生成的 Windows 快捷方式。
+为了保证电脑重启后仍能可靠启动，建议先安装稳定的系统/用户级 Node.js 20+。安装器会自动检查可用 Node，拒绝把 Codex `.cache/codex-runtimes`、Temp 等临时/缓存运行时写进 Windows 登录自启动快捷方式，并在安装前验证关键运行时依赖是否完整。仓库本身不会写死某个用户的 `C:\Users\...` 或 Node 安装路径。
+
+`npm run control-center:doctor` 会检查稳定 Node、npm、AgentDock build、运行时依赖、已保存 workspace profile、Windows 登录自启动快捷方式，以及本机 48731/8787 服务状态。
 
 AgentDock 已运行时，Control Center 会通过本机 runtime config 接口热更新这五项核心参数，AgentDock PID、8787 端口、Tunnel 和 MCP Session 都不需要重启。因此在 ChatGPT 网页端修改配置后，原有对话可以直接继续调用同一个 AgentDock 连接。
 
@@ -82,6 +84,12 @@ AgentDock 已运行时，Control Center 会通过本机 runtime config 接口热
 
 ```powershell
 node scripts/local-workspace-bridge.mjs setup
+```
+
+完成首次 setup 后，再验证重启安全性：
+
+```powershell
+npm run control-center:doctor
 ```
 
 完整安装、卸载、自启动 Supervisor 和测试说明见 [control-center/README.md](control-center/README.md)。

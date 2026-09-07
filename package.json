@@ -69,10 +69,11 @@
     "connect:ngrok": "node scripts/local-workspace-bridge.mjs ngrok",
     "connect:tailscale": "node scripts/local-workspace-bridge.mjs tailscale",
     "control-center:start": "node control-center/server.mjs",
-    "control-center:test": "node --test control-center/test/controller.test.mjs",
+    "control-center:test": "node --test control-center/test/controller.test.mjs control-center/test/runtime-node.test.mjs",
     "control-center:smoke": "node control-center/scripts/apply-smoke.mjs && node control-center/scripts/control-server-smoke.mjs && node control-center/scripts/integration-smoke.mjs",
     "control-center:layout": "node control-center/scripts/layout-smoke.mjs",
     "control-center:install": "npm run build && node control-center/scripts/install.mjs",
+    "control-center:doctor": "node control-center/scripts/doctor.mjs",
     "control-center:uninstall": "node control-center/scripts/uninstall.mjs"
   },
   "dependencies": {

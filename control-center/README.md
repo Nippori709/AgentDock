@@ -23,7 +23,7 @@ It is bundled inside the AgentDock repository and does not depend on a machine-s
 From the AgentDock repository root:
 
 ```powershell
-npm install
+npm ci
 npm run control-center:install
 ```
 
@@ -32,7 +32,9 @@ npm run control-center:install
 - a desktop shortcut: **AgentDock Control Center**
 - a Windows sign-in startup shortcut: **AgentDock Control Supervisor**
 
-The installer records the Node executable used during installation in the generated shortcuts. The repository itself contains no user-specific Node or home-directory path.
+The installer does not blindly persist `process.execPath`. It discovers usable Node.js 20+ runtimes and refuses temporary/cache locations such as Codex `.cache/codex-runtimes` or Windows Temp paths for long-lived shortcuts. If a stable system Node exists, it is preferred for the desktop and Windows sign-in shortcuts. The installer also verifies that AgentDock's key runtime dependencies can be loaded before creating shortcuts.
+
+If no reboot-safe Node runtime is available, install Node.js LTS system-wide, reopen the terminal, run `npm ci`, and rerun `npm run control-center:install`. Advanced users can point `AGENTDOCK_CONTROL_NODE` at a stable Node executable.
 
 If no AgentDock workspace profile exists yet, run the normal AgentDock setup once:
 
@@ -41,6 +43,40 @@ node scripts/local-workspace-bridge.mjs setup
 ```
 
 Then open the desktop Control Center.
+
+After the first AgentDock setup is complete, run:
+
+```powershell
+npm run control-center:doctor
+```
+
+## Reboot-safe startup doctor
+
+Run:
+
+```powershell
+npm run control-center:doctor
+```
+
+The doctor checks:
+
+- a stable Node.js 20+ runtime;
+- whether the current installer Node is a temporary/cache runtime;
+- npm availability;
+- `dist/http.js`;
+- MCP SDK / zod runtime dependency resolution;
+- a saved AgentDock workspace profile;
+- the Windows sign-in supervisor shortcut and the Node path stored in it;
+- local Control Center port 48731;
+- local AgentDock port 8787.
+
+The final line is:
+
+```text
+✓ AgentDock is ready for reboot-safe Windows startup.
+```
+
+when all blocking prerequisites are satisfied. Port checks are warnings rather than blockers so the doctor is also useful before the supervisor has started.
 
 ## Using the Control Center UI
 
