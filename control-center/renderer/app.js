@@ -13,6 +13,7 @@ async function apiRequest(url, options = {}) {
 
 const api = {
   getState: () => apiRequest('/api/state'),
+  restart: () => apiRequest('/api/restart-agentdock', { method: 'POST', body: '{}' }),
   browseDirectories: (dir = '') => apiRequest(`/api/browse-directories?path=${encodeURIComponent(dir)}`),
   applyConfig: (config) => apiRequest('/api/apply', {
     method: 'POST',
@@ -34,6 +35,7 @@ const allowedRootsList = document.querySelector('#allowedRootsList');
 const emptyAllowed = document.querySelector('#emptyAllowed');
 const bashWarning = document.querySelector('#bashWarning');
 const applyBtn = document.querySelector('#applyBtn');
+const restartBtn = document.querySelector('#restartBtn');
 const applyLabel = applyBtn.querySelector('.button-label');
 const applyTitle = document.querySelector('#applyTitle');
 const applyMessage = document.querySelector('#applyMessage');
@@ -174,6 +176,7 @@ function setControlsDisabled(disabled) {
     node.disabled = disabled;
   });
   applyBtn.disabled = disabled;
+  restartBtn.disabled = disabled;
   applyBtn.classList.toggle('busy', disabled);
 }
 function updateBashWarning() {
@@ -276,6 +279,34 @@ api.onProgress(({ stage, message }) => {
   applyTitle.textContent = '正在处理';
   applyMessage.textContent = message;
   setResult('info', message);
+});
+
+restartBtn.addEventListener('click', async () => {
+  if (busy) return;
+  if (!window.confirm('重启会中断正在执行的任务，并短暂断开 ChatGPT 连接。将使用已保存配置，页面未应用的修改会保留。确定重启服务？')) return;
+  setControlsDisabled(true);
+  restartBtn.textContent = '正在重启…';
+  statusBadge.className = 'status-badge status-loading';
+  statusText.textContent = '正在重启';
+  setResult('info', '正在重启 AgentDock 服务…');
+  try {
+    const result = await api.restart();
+    setStatus(result.status);
+    setResult('success', '服务已重启并通过验证。页面未应用的修改仍保留；如需生效，请点击“确定并生效”。');
+  } catch (error) {
+    setResult('error', `重启失败：${error?.message || String(error)}`);
+    try {
+      const refreshed = await api.getState();
+      setStatus(refreshed.status);
+    } catch {
+      statusBadge.className = 'status-badge status-warn';
+      statusText.textContent = '状态未知';
+    }
+  } finally {
+    restartBtn.textContent = '重启服务';
+    setControlsDisabled(false);
+    refreshActionCopy();
+  }
 });
 
 applyBtn.addEventListener('click', async () => {

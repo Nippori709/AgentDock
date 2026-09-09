@@ -141,6 +141,10 @@ Progress and errors are displayed in the window while the operation is running. 
 
 ## How applying settings works
 
+### Restart service
+
+Use **重启服务** beside the status badge to recover a stuck service or load updated code. Confirmation warns that active tasks and the ChatGPT connection will be interrupted. Restart uses the saved configuration and preserves unapplied form edits. Controls are disabled during the operation; progress, verified status, and failures appear in the window. Normal configuration changes should still use **Apply** for hot reload.
+
 When AgentDock is already running, the Control Center sends the five settings to the authenticated local runtime endpoint:
 
 ```text

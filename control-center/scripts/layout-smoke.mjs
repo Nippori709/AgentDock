@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -100,7 +100,7 @@ function cdpEvaluate(wsUrl, expression) {
       if (message.id !== id) return;
       clearTimeout(timer);
       ws.close();
-      if (message.error) reject(new Error(JSON.stringify(message.error)));
+      if (message.error || message.result?.exceptionDetails) reject(new Error(JSON.stringify(message.error || message.result.exceptionDetails)));
       else resolve(message.result?.result?.value);
     };
   });
@@ -124,6 +124,38 @@ try {
 
   const target = await waitTarget();
   await sleep(400);
+  const restartChecks = await cdpEvaluate(target.webSocketDebuggerUrl, `(async () => {
+    const button = document.querySelector('#restartBtn');
+    const root = document.querySelector('#rootInput');
+    const apply = document.querySelector('#applyBtn');
+    for (let i = 0; button.disabled && i < 100; i++) await new Promise(r => setTimeout(r, 50));
+    const originalFetch = window.fetch;
+    let calls = 0, release;
+    window.fetch = async (url, options) => {
+      if (url !== '/api/restart-agentdock') return originalFetch(url, options);
+      calls++;
+      return await new Promise(resolve => { release = resolve; });
+    };
+    window.confirm = () => false;
+    button.click();
+    if (calls !== 0) throw new Error('cancel sent a restart request');
+    root.value = 'unapplied-draft';
+    window.confirm = () => true;
+    button.click();
+    if (calls !== 1 || !button.disabled || !apply.disabled || !root.disabled) throw new Error('restart controls not locked');
+    button.click();
+    if (calls !== 1) throw new Error('duplicate restart');
+    release(new Response(JSON.stringify({ status: { running: true, matchesSaved: true } }), { status: 200 }));
+    for (let i = 0; button.disabled && i < 100; i++) await new Promise(r => setTimeout(r, 20));
+    if (button.disabled || root.value !== 'unapplied-draft' || !document.querySelector('#resultBanner').classList.contains('success')) throw new Error('restart success or draft preservation failed');
+    button.click();
+    release(new Response(JSON.stringify({ error: 'test restart failure' }), { status: 500 }));
+    for (let i = 0; button.disabled && i < 100; i++) await new Promise(r => setTimeout(r, 20));
+    if (button.disabled || root.value !== 'unapplied-draft' || !document.querySelector('#resultBanner').textContent.includes('test restart failure')) throw new Error('restart error recovery failed');
+    return { passed: true };
+  })()`);
+  if (restartChecks && !restartChecks.passed) throw new Error('restart UI checks failed');
+  if (restartChecks) console.log('✓ Restart UI cancellation, locking, success, failure and draft preservation passed');
   const metrics = await cdpEvaluate(target.webSocketDebuggerUrl, `({
     innerWidth: window.innerWidth,
     innerHeight: window.innerHeight,
@@ -144,9 +176,22 @@ try {
     console.log('✓ 760x680 layout shows the complete main UI without page scrolling');
   }
 } finally {
-  try { browser?.kill('SIGTERM'); } catch {}
+  try {
+    const version = await (await fetch(`http://127.0.0.1:${debugPort}/json/version`)).json();
+    await new Promise((resolve) => {
+      const ws = new WebSocket(version.webSocketDebuggerUrl);
+      const timer = setTimeout(() => { ws.close(); resolve(); }, 3000);
+      ws.onopen = () => ws.send(JSON.stringify({ id: 1, method: 'Browser.close' }));
+      ws.onclose = ws.onerror = () => { clearTimeout(timer); resolve(); };
+    });
+  } catch {}
+  if (process.platform === 'win32' && browser?.pid) {
+    spawnSync('taskkill', ['/PID', String(browser.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+  } else {
+    try { browser?.kill('SIGTERM'); } catch {}
+  }
   try { control.kill('SIGTERM'); } catch {}
-  await sleep(250);
-  fs.rmSync(tempProfile, { recursive: true, force: true });
-  fs.rmSync(tempHome, { recursive: true, force: true });
+  await sleep(1000);
+  fs.rmSync(tempProfile, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+  fs.rmSync(tempHome, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 }
