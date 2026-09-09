@@ -123,7 +123,17 @@ try {
   ], { windowsHide: true, stdio: 'ignore' });
 
   const target = await waitTarget();
-  await sleep(400);
+  let ready = false;
+  for (let i = 0; i < 120; i++) {
+    try {
+      ready = await cdpEvaluate(target.webSocketDebuggerUrl, `document.readyState === 'complete' && !!document.querySelector('#restartBtn') && !document.querySelector('#restartBtn').disabled`);
+      if (ready || typeof WebSocket !== 'function') break;
+    } catch (error) {
+      if (!String(error).includes('context')) throw error;
+    }
+    await sleep(250);
+  }
+  if (!ready && typeof WebSocket === 'function') throw new Error('Control Center did not finish loading');
   const restartChecks = await cdpEvaluate(target.webSocketDebuggerUrl, `(async () => {
     for (let i = 0; !document.querySelector('#restartBtn') && i < 100; i++) await new Promise(r => setTimeout(r, 50));
     const button = document.querySelector('#restartBtn');
