@@ -125,7 +125,9 @@ try {
   const target = await waitTarget();
   await sleep(400);
   const restartChecks = await cdpEvaluate(target.webSocketDebuggerUrl, `(async () => {
+    for (let i = 0; !document.querySelector('#restartBtn') && i < 100; i++) await new Promise(r => setTimeout(r, 50));
     const button = document.querySelector('#restartBtn');
+    if (!button) throw new Error('restart button did not load');
     const root = document.querySelector('#rootInput');
     const apply = document.querySelector('#applyBtn');
     for (let i = 0; button.disabled && i < 100; i++) await new Promise(r => setTimeout(r, 50));
