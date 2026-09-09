@@ -9,6 +9,7 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:"Segoe UI","Mic
 button,input{font:inherit}button{cursor:pointer}button:disabled,input:disabled{opacity:.55;cursor:not-allowed}
 .app-shell{width:min(100%,720px);margin:0 auto;padding:16px}
 .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}
+.service-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
 .topbar h1{margin:0;font-size:19px;line-height:1.2}.topbar p{margin:4px 0 0;color:var(--muted);font-size:11px}
 .status-badge{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:0 10px;border:1px solid var(--border);border-radius:999px;background:#fff;color:var(--muted);font-weight:700;white-space:nowrap}
 .status-dot{width:7px;height:7px;border-radius:50%;background:#9ca3af}
