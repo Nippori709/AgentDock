@@ -2,12 +2,12 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { chromium } from 'playwright-core';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
-const tempProfile = fs.mkdtempSync(path.join(os.tmpdir(), 'agentdock-layout-browser-'));
 const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'agentdock-layout-control-'));
 
 function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
@@ -34,7 +34,6 @@ function findEdge() {
 }
 
 const serverPort = await freePort();
-const debugPort = await freePort();
 const baseUrl = `http://127.0.0.1:${serverPort}/`;
 
 const control = spawn(process.execPath, ['server.mjs'], {
@@ -62,79 +61,19 @@ async function waitHttp() {
   throw new Error('isolated Control Center did not start');
 }
 
-async function waitTarget() {
-  for (let i = 0; i < 80; i += 1) {
-    try {
-      const response = await fetch(`http://127.0.0.1:${debugPort}/json/list`);
-      if (response.ok) {
-        const targets = await response.json();
-        const page = targets.find((item) => item.type === 'page' && item.url.startsWith(baseUrl));
-        if (page?.webSocketDebuggerUrl) return page;
-      }
-    } catch {}
-    await sleep(100);
-  }
-  throw new Error('Edge DevTools target did not become ready');
-}
-
-function cdpEvaluate(wsUrl, expression) {
-  if (typeof WebSocket !== 'function') return Promise.resolve(null);
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(wsUrl);
-    const id = 1;
-    const timer = setTimeout(() => {
-      try { ws.close(); } catch {}
-      reject(new Error('CDP evaluation timed out'));
-    }, 10000);
-    ws.onerror = () => {
-      clearTimeout(timer);
-      reject(new Error('CDP WebSocket failed'));
-    };
-    ws.onopen = () => ws.send(JSON.stringify({
-      id,
-      method: 'Runtime.evaluate',
-      params: { expression, returnByValue: true, awaitPromise: true }
-    }));
-    ws.onmessage = (event) => {
-      const message = JSON.parse(String(event.data));
-      if (message.id !== id) return;
-      clearTimeout(timer);
-      ws.close();
-      if (message.error || message.result?.exceptionDetails) reject(new Error(JSON.stringify(message.error || message.result.exceptionDetails)));
-      else resolve(message.result?.result?.value);
-    };
-  });
-}
-
 const edge = findEdge();
 if (!edge) throw new Error('Microsoft Edge not found');
-
-let browser = null;
+let browser;
 try {
   await waitHttp();
-  browser = spawn(edge, [
-    '--headless=new',
-    '--disable-gpu',
-    `--remote-debugging-port=${debugPort}`,
-    '--window-size=760,680',
-    `--user-data-dir=${tempProfile}`,
-    '--no-first-run',
-    baseUrl
-  ], { windowsHide: true, stdio: 'ignore' });
-
-  const target = await waitTarget();
-  let ready = false;
-  for (let i = 0; i < 120; i++) {
-    try {
-      ready = await cdpEvaluate(target.webSocketDebuggerUrl, `document.readyState === 'complete' && !!document.querySelector('#restartBtn') && !document.querySelector('#restartBtn').disabled`);
-      if (ready || typeof WebSocket !== 'function') break;
-    } catch (error) {
-      if (!String(error).includes('context')) throw error;
-    }
-    await sleep(250);
-  }
-  if (!ready && typeof WebSocket === 'function') throw new Error('Control Center did not finish loading');
-  const restartChecks = await cdpEvaluate(target.webSocketDebuggerUrl, `(async () => {
+  browser = await chromium.launch({ executablePath: edge, headless: true, timeout: 60000 });
+  const page = await browser.newPage({ viewport: { width: 736, height: 588 } });
+  await page.goto(baseUrl, { waitUntil: 'load', timeout: 60000 });
+  await page.waitForFunction(() => {
+    const button = document.querySelector('#restartBtn');
+    return button && !button.disabled;
+  });
+  const restartChecks = await page.evaluate(async () => {
     for (let i = 0; !document.querySelector('#restartBtn') && i < 100; i++) await new Promise(r => setTimeout(r, 50));
     const button = document.querySelector('#restartBtn');
     if (!button) throw new Error('restart button did not load');
@@ -165,45 +104,25 @@ try {
     for (let i = 0; button.disabled && i < 100; i++) await new Promise(r => setTimeout(r, 20));
     if (button.disabled || root.value !== 'unapplied-draft' || !document.querySelector('#resultBanner').textContent.includes('test restart failure')) throw new Error('restart error recovery failed');
     return { passed: true };
-  })()`);
-  if (restartChecks && !restartChecks.passed) throw new Error('restart UI checks failed');
-  if (restartChecks) console.log('✓ Restart UI cancellation, locking, success, failure and draft preservation passed');
-  const metrics = await cdpEvaluate(target.webSocketDebuggerUrl, `({
+  });
+
+  if (!restartChecks.passed) throw new Error('restart UI checks failed');
+  console.log('✓ Restart UI cancellation, locking, success, failure and draft preservation passed');
+  const metrics = await page.evaluate(() => ({
     innerWidth: window.innerWidth,
     innerHeight: window.innerHeight,
     scrollWidth: document.documentElement.scrollWidth,
     scrollHeight: document.documentElement.scrollHeight
-  })`);
-
-  if (!metrics) {
-    console.log('↷ Layout dimensions skipped because this Node runtime has no global WebSocket; page launch still passed.');
-  } else {
-    console.log(JSON.stringify(metrics));
-    if (metrics.scrollHeight > metrics.innerHeight) {
-      throw new Error(`page needs vertical scrolling: scrollHeight=${metrics.scrollHeight}, innerHeight=${metrics.innerHeight}`);
-    }
-    if (metrics.scrollWidth > metrics.innerWidth) {
-      throw new Error(`page needs horizontal scrolling: scrollWidth=${metrics.scrollWidth}, innerWidth=${metrics.innerWidth}`);
-    }
-    console.log('✓ 760x680 layout shows the complete main UI without page scrolling');
+  }));
+  console.log(JSON.stringify(metrics));
+  if (metrics.scrollHeight > metrics.innerHeight || metrics.scrollWidth > metrics.innerWidth) {
+    throw new Error('main UI requires page scrolling');
   }
+  console.log('✓ 760x680 layout shows the complete main UI without page scrolling');
 } finally {
-  try {
-    const version = await (await fetch(`http://127.0.0.1:${debugPort}/json/version`)).json();
-    await new Promise((resolve) => {
-      const ws = new WebSocket(version.webSocketDebuggerUrl);
-      const timer = setTimeout(() => { ws.close(); resolve(); }, 3000);
-      ws.onopen = () => ws.send(JSON.stringify({ id: 1, method: 'Browser.close' }));
-      ws.onclose = ws.onerror = () => { clearTimeout(timer); resolve(); };
-    });
-  } catch {}
-  if (process.platform === 'win32' && browser?.pid) {
-    spawnSync('taskkill', ['/PID', String(browser.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
-  } else {
-    try { browser?.kill('SIGTERM'); } catch {}
+  try { await browser?.close(); } finally {
+    control.kill('SIGTERM');
+    await sleep(1000);
+    fs.rmSync(tempHome, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
   }
-  try { control.kill('SIGTERM'); } catch {}
-  await sleep(1000);
-  fs.rmSync(tempProfile, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
-  fs.rmSync(tempHome, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 }
