@@ -62,6 +62,7 @@ try {
 
   const unauthorized = await fetch(health);
   if (unauthorized.status !== 401) throw new Error(`unauthenticated health check should be 401, got ${unauthorized.status}`);
+  if (child.exitCode !== null || child.signalCode !== null) throw new Error(`HTTP server exited before cleanup: ${stderr}`);
   console.log('✓ LocalWorkspaceBridge HTTP smoke test passed');
 } finally {
   child.kill('SIGTERM');
@@ -69,4 +70,4 @@ try {
   await fs.rm(home, { recursive: true, force: true });
 }
 
-if (child.exitCode && child.exitCode !== 0) throw new Error(`HTTP server exited ${child.exitCode}: ${stderr}`);
+if (child.exitCode !== null && ![0, 143].includes(child.exitCode)) throw new Error(`HTTP server exited ${child.exitCode}: ${stderr}`);

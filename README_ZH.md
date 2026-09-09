@@ -6,7 +6,13 @@ AgentDock 是一个运行在本机的 MCP Gateway，让 ChatGPT 在明确的工�
 
 核心设计只有一条执行链：**ChatGPT 负责理解、规划和决策；AgentDock 负责提供真实仓库证据与本机执行能力。**
 
-> 当前为早期公开版本 `0.1.x`。通过公网隧道暴露本机工作区前，请先阅读 [SECURITY.md](SECURITY.md)。
+> 当前为早期公开版本 `0.2.x`。通过公网隧道暴露本机工作区前，请先阅读 [SECURITY.md](SECURITY.md)。
+
+## 0.2.0 整合增强
+
+在 GitHub 最新版本的稳定 Node 启动、控制中心热更新、PyMuPDF 修复之上，加入持续命令执行（日志、标准输入、取消与重连）、本地浏览器操作与截图、批量读取和 SHA-256 防覆盖编辑。规划由 ChatGPT 自己完成，无需 task_plan。
+
+使用说明见 [Agent 工具](AGENT_TOOLS.md)、[ChatGPT 指令](CHATGPT_PROMPT.md)，具体变化见 [CHANGELOG](CHANGELOG.md)。浏览器工具需要已安装 Edge、Chrome 或 Chromium，仅访问本机开发页面；通用命令和开发服务器需要 Bash Full 模式。
 
 ## 为什么做 AgentDock
 

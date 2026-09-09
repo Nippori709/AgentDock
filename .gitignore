@@ -10,6 +10,7 @@ output/
 *.local.md
 *.local.json
 .local-workspace-bridge/
+.ai-bridge/
 .DS_Store
 Thumbs.db
 **/_logs/

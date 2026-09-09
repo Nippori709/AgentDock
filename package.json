@@ -1,16 +1,16 @@
 {
   "name": "local-workspace-bridge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A local MCP gateway that gives ChatGPT bounded repository context, file and image access, direct workspace edits, command verification, and change review.",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Nippori709/LocalWorkspaceBridge.git"
+    "url": "git+https://github.com/Nippori709/AgentDock.git"
   },
-  "homepage": "https://github.com/Nippori709/LocalWorkspaceBridge#readme",
+  "homepage": "https://github.com/Nippori709/AgentDock#readme",
   "bugs": {
-    "url": "https://github.com/Nippori709/LocalWorkspaceBridge/issues"
+    "url": "https://github.com/Nippori709/AgentDock/issues"
   },
   "publishConfig": {
     "access": "public"
@@ -32,7 +32,6 @@
     "scripts/image-worker.py",
     "scripts/document-worker.py",
     "scripts/runtime/status.mjs",
-    "control-center/**",
     "README.md",
     "README_ZH.md",
     "README_JA.md",
@@ -40,7 +39,22 @@
     "CONTRIBUTING.md",
     "LINUX_SERVER.md",
     "LICENSE",
-    "config.example.env"
+    "config.example.env",
+    "CHATGPT_PROMPT.md",
+    "AGENT_TOOLS.md",
+    "CHANGELOG.md",
+    "control-center/*.mjs",
+    "control-center/*.md",
+    "control-center/package.json",
+    "control-center/backend/**",
+    "control-center/renderer/**",
+    "control-center/scripts/runtime-node.mjs",
+    "control-center/scripts/doctor.mjs",
+    "control-center/scripts/install.mjs",
+    "control-center/scripts/uninstall.mjs",
+    "control-center/scripts/desktop.mjs",
+    "control-center/scripts/preview.mjs",
+    "control-center/scripts/run-hidden.vbs"
   ],
   "bin": {
     "local-workspace-bridge": "scripts/local-workspace-bridge.mjs",
@@ -56,7 +70,7 @@
     "start:http": "node dist/http.js",
     "dev:stdio": "tsx src/stdio.ts",
     "dev:http": "tsx src/http.ts",
-    "smoke": "node scripts/analysis-smoke.mjs && node scripts/analysis-cli-smoke.mjs && node scripts/shell-smoke.mjs && node scripts/linux-service-smoke.mjs && node scripts/image-smoke.mjs && node scripts/document-smoke.mjs && node scripts/smoke.mjs && node scripts/runtime-hot-smoke.mjs && node scripts/http-smoke.mjs",
+    "smoke": "node scripts/smoke-all.mjs",
     "benchmark": "npm run build && node benchmarks/run.mjs",
     "benchmark:quick": "npm run build && node benchmarks/run.mjs --quick",
     "proxy:smoke": "npm run build && node scripts/proxy-smoke.mjs",
@@ -74,7 +88,9 @@
     "control-center:layout": "node control-center/scripts/layout-smoke.mjs",
     "control-center:install": "npm run build && node control-center/scripts/install.mjs",
     "control-center:doctor": "node control-center/scripts/doctor.mjs",
-    "control-center:uninstall": "node control-center/scripts/uninstall.mjs"
+    "control-center:uninstall": "node control-center/scripts/uninstall.mjs",
+    "agent:smoke": "npm run build && node scripts/agent-tools-smoke.mjs",
+    "browser:smoke": "npm run build && node scripts/browser-smoke.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/node": "^2.0.0",
@@ -84,7 +100,8 @@
     "express": "^5.1.0",
     "ignore": "^7.0.6",
     "minimatch": "^10.0.1",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "playwright-core": "^1.63.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

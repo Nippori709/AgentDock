@@ -1,10 +1,12 @@
 #!/usr/bin/env node
+import { getExecManager, installExecShutdown } from "./execOps.js";
+import { getBrowserSessionManager } from "./browserSessionOps.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadConfig } from "./config.js";
 import { createLocalWorkspaceBridgeServer } from "./server.js";
 import { applyToolSecuritySchemeCompat } from "./transportCompat.js";
 
-const LOCALWORKSPACEBRIDGE_VERSION = "0.1.0";
+const LOCALWORKSPACEBRIDGE_VERSION = "0.2.0";
 
 function printHelp(): void {
   console.log(`LocalWorkspaceBridge MCP stdio server
@@ -30,10 +32,13 @@ async function main(): Promise<void> {
 
   process.env.LOCALWORKSPACEBRIDGE_ALLOW_NO_HTTP_TOKEN ??= "1";
   const config = loadConfig();
+  installExecShutdown(config);
   const server = createLocalWorkspaceBridgeServer(config);
   const transport = new StdioServerTransport();
   applyToolSecuritySchemeCompat(config, transport);
   await server.connect(transport);
+  const previousClose = transport.onclose;
+  transport.onclose = () => { previousClose?.(); void getExecManager(config).dispose(); void getBrowserSessionManager(config).dispose(); };
 }
 
 main().catch((error) => {

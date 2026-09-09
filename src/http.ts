@@ -23,6 +23,7 @@ import {
 } from "./profileStore.js";
 import { redactSensitiveText, redactStructured } from "./redact.js";
 import { createLocalWorkspaceBridgeServer, reconcileLocalWorkspaceBridgeRuntimeConfig } from "./server.js";
+import { installExecShutdown } from "./execOps.js";
 import { createLocalWorkspaceBridgeOAuth } from "./oauth.js";
 import { applyToolSecuritySchemeCompat, patchModernToolSecuritySchemes } from "./transportCompat.js";
 
@@ -456,7 +457,7 @@ const LOCAL_FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 6
   <rect x="8" y="8" width="48" height="48" rx="12" fill="#ffffff" fill-opacity=".12" stroke="#ffffff" stroke-opacity=".38"/>
   <path d="M38.4 40.3c-1.8 1.1-3.9 1.7-6.3 1.7-6.1 0-10.3-4.2-10.3-10s4.2-10 10.4-10c2.4 0 4.5.6 6.2 1.7l-2.1 4.1c-1.1-.7-2.3-1-3.8-1-2.9 0-4.9 2.1-4.9 5.2s2 5.2 4.9 5.2c1.5 0 2.8-.4 3.9-1.1l2 4.2Z" fill="#ffffff"/>
 </svg>`;
-const LOCALWORKSPACEBRIDGE_VERSION = "0.1.0";
+const LOCALWORKSPACEBRIDGE_VERSION = "0.2.0";
 
 function printHelp(): void {
   console.log(`LocalWorkspaceBridge MCP HTTP server
@@ -1469,6 +1470,7 @@ async function main(): Promise<void> {
   }
 
   const config = loadConfig();
+  installExecShutdown(config);
   if (config.requireHttpToken && !config.authToken) {
     throw new Error(
       "LOCALWORKSPACEBRIDGE_HTTP_TOKEN is required for this HTTP binding. " +
@@ -1480,7 +1482,7 @@ async function main(): Promise<void> {
   const app = express();
   const logRequests = process.env.LOCALWORKSPACEBRIDGE_LOG_REQUESTS === "1";
   const oauth = config.publicUrl && config.authToken ? createLocalWorkspaceBridgeOAuth(config.publicUrl, config.authToken) : undefined;
-  const modernMcpHandler = createMcpHandler(() => createLocalWorkspaceBridgeServer(config), {
+  const modernMcpHandler = createMcpHandler(() => createLocalWorkspaceBridgeServer(config, { stableToolSchema: true }), {
     legacy: "reject",
     onerror: (error) => console.error(`[LocalWorkspaceBridge] modern MCP: ${redactSensitiveText(error.stack ?? error.message)}`)
   });
@@ -1791,7 +1793,7 @@ async function main(): Promise<void> {
           if (closedSessionId) transports.delete(closedSessionId);
         };
 
-        const server = createLocalWorkspaceBridgeServer(config);
+        const server = createLocalWorkspaceBridgeServer(config, { stableToolSchema: true });
         applyToolSecuritySchemeCompat(config, transport);
         await server.connect(transport);
       } else {

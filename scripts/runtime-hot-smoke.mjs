@@ -1,18 +1,28 @@
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import net from 'node:net';
 import path from 'node:path';
 
 const projectRoot = process.cwd();
 const node = process.execPath;
-const port = 48987;
+const port = await new Promise((resolve, reject) => {
+  const socket = net.createServer();
+  socket.once('error', reject);
+  socket.listen(0, '127.0.0.1', () => { const port = socket.address().port; socket.close(() => resolve(port)); });
+});
 const token = 'test';
 const base = `http://127.0.0.1:${port}`;
-const root = path.resolve('..');
-const narrowRoot = path.join(root, 'MoE_LT_0');
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'agentdock-runtime-hot-'));
+const root = path.join(temp, 'root');
+const narrowRoot = path.join(root, 'narrow');
+fs.mkdirSync(narrowRoot, { recursive: true });
 
 const child = spawn(node, ['dist/http.js'], {
   cwd: projectRoot,
   env: {
     ...process.env,
+    LOCALWORKSPACEBRIDGE_HOME: path.join(temp, 'home'),
     LOCALWORKSPACEBRIDGE_ROOT: root,
     LOCALWORKSPACEBRIDGE_ALLOWED_ROOTS: root,
     LOCALWORKSPACEBRIDGE_PORT: String(port),
@@ -135,6 +145,22 @@ try {
   const treeAllowed = await mcp('tools/call', { name: 'tree', arguments: { max_depth: 1, max_files: 20 } });
   if (callIsError(treeAllowed)) throw new Error('tree stayed denied after hot reload to full');
 
+  fs.writeFileSync(path.join(root, 'alive.mjs'), 'console.log("http-process-ready"); setInterval(() => {}, 1000);');
+  const launchArgs = { command: 'node alive.mjs', request_id: 'http-reconnect-test', wait_ms: 0 };
+  const launch = await mcp('tools/call', { name: 'exec_start', arguments: launchArgs });
+  if (callIsError(launch)) throw new Error(`HTTP launch failed: ${JSON.stringify(launch)}`);
+  const processId = launch.result.structuredContent.process_id;
+  const replay = await mcp('tools/call', { name: 'exec_start', arguments: launchArgs });
+  if (replay.result?.structuredContent?.process_id !== processId) throw new Error('HTTP retry duplicated the process');
+  const logs = await mcp('tools/call', { name: 'exec_poll', arguments: { process_id: processId, wait_ms: 1000 } });
+  if (!logs.result?.structuredContent?.running) throw new Error('Process did not survive separate HTTP requests');
+  const processes = await mcp('tools/call', { name: 'exec_list', arguments: {} });
+  if (!processes.result?.structuredContent?.processes?.some(item => item.process_id === processId)) throw new Error('HTTP process recovery failed');
+  const stopped = await mcp('tools/call', { name: 'exec_stop', arguments: { process_id: processId } });
+  if (stopped.result?.structuredContent?.running !== false) throw new Error('HTTP process did not stop');
+  console.log('✓ persistent execution survives stateless HTTP calls without duplicate launches');
+
+
   await hot({
     defaultRoot: narrowRoot,
     allowedRoots: [narrowRoot],
@@ -162,4 +188,5 @@ try {
   child.kill('SIGTERM');
   await new Promise((resolve) => setTimeout(resolve, 300));
   if (child.exitCode === null) child.kill('SIGKILL');
+  fs.rmSync(temp, { recursive: true, force: true });
 }

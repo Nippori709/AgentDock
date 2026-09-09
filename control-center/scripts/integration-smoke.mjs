@@ -80,6 +80,7 @@ try {
   };
   const mismatches = compareLiveConfig(expected, live);
   if (mismatches.length) throw new Error(`server_config mismatch: ${mismatches.join(', ')}`);
+  if (child.exitCode !== null || child.signalCode !== null) throw new Error(`temporary AgentDock exited before cleanup: ${stderr}`);
   console.log('✓ AgentDock Control Center MCP verification smoke passed');
 } finally {
   child.kill('SIGTERM');
@@ -91,6 +92,6 @@ try {
   else process.env.LOCALWORKSPACEBRIDGE_HOME = oldHome;
 }
 
-if (child.exitCode && child.exitCode !== 0) {
+if (child.exitCode !== null && ![0, 143].includes(child.exitCode)) {
   throw new Error(`temporary AgentDock exited ${child.exitCode}: ${stderr}`);
 }

@@ -135,7 +135,7 @@ function isAllowedPackageScript(command: string): boolean {
   return packageScriptPattern.test(command);
 }
 
-function assertSafeCommand(config: LocalWorkspaceBridgeConfig, command: string): void {
+export function assertSafeCommand(config: LocalWorkspaceBridgeConfig, command: string): void {
   if (config.bashMode === "off") {
     throw new LocalWorkspaceBridgeError("bash tool is disabled. Start with LOCALWORKSPACEBRIDGE_BASH_MODE=safe or LOCALWORKSPACEBRIDGE_BASH_MODE=full to enable it.");
   }
@@ -160,7 +160,7 @@ function assertSafeCommand(config: LocalWorkspaceBridgeConfig, command: string):
   }
 }
 
-function assertBashSession(config: LocalWorkspaceBridgeConfig, sessionId?: string): string | undefined {
+export function assertBashSession(config: LocalWorkspaceBridgeConfig, sessionId?: string): string | undefined {
   const requested = sessionId?.trim();
   if (!config.bashSessionId) {
     if (config.requireBashSession) {
@@ -242,7 +242,10 @@ function powershellArgs(command: string): string[] {
     "[Console]::InputEncoding = $utf8",
     "[Console]::OutputEncoding = $utf8",
     "$OutputEncoding = $utf8",
-    command
+    command,
+    "$local_workspace_bridgeCommandSucceeded = $?",
+    // Let successful PowerShell pipelines flush their formatter naturally (e.g. Get-Location).
+    "if (-not $local_workspace_bridgeCommandSucceeded) { if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; exit 1 }"
   ].join("; ");
   return ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")];
 }
@@ -419,10 +422,10 @@ export async function runBash(
     child.on("close", (exitCode, signal) => {
       clearTimeout(timer);
       if (killedByTimeout) {
-        stderr += `\n[local-workspace-bridge] Command timed out after ${timeoutMs} ms.`;
+        stderr += `\n[local_workspace_bridge] Command timed out after ${timeoutMs} ms.`;
       }
       if (killedByOutputLimit) {
-        stderr += `\n[local-workspace-bridge] Command exceeded the output limit and its process tree was terminated.`;
+        stderr += `\n[local_workspace_bridge] Command exceeded the output limit and its process tree was terminated.`;
       }
       const output = trimCombinedOutput(redactSensitiveText(stdout), redactSensitiveText(stderr), config.maxOutputBytes);
       resolve({

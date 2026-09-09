@@ -275,7 +275,7 @@ export async function writeTextFile(
   workspace: Workspace,
   filePath: string,
   content: string,
-  options: { createDirs?: boolean; overwrite?: boolean } = {}
+  options: { createDirs?: boolean; overwrite?: boolean; expectedSha256?: string } = {}
 ): Promise<{ path: string; bytes: number; sha256: string; existed: boolean; diff: DiffResult }> {
   const resolved = guard.resolve(workspace, filePath, { forWrite: true });
   const contentBytes = Buffer.byteLength(content, "utf8");
@@ -283,7 +283,7 @@ export async function writeTextFile(
     throw new LocalWorkspaceBridgeError(`Write content is too large (${contentBytes} bytes). Limit: ${config.maxWriteBytes} bytes.`);
   }
   if (hasSecretValue(content)) {
-    throw new LocalWorkspaceBridgeError("Secret-looking content is blocked from write. Use placeholders such as [REDACTED_SECRET] instead of real credentials.");
+    throw new LocalWorkspaceBridgeError("Secret-looking content is blocked from write. Use placeholders such as [REDACTED_SECRET] in handoff files.");
   }
 
   let oldText = "";
@@ -300,12 +300,19 @@ export async function writeTextFile(
   if (existed && options.overwrite === false) {
     throw new LocalWorkspaceBridgeError(`File already exists and overwrite=false: ${resolved.relPath}`);
   }
+  if (options.expectedSha256 && (!existed || sha256(oldText) !== options.expectedSha256)) {
+    throw new LocalWorkspaceBridgeError("File changed since read (expected_sha256 mismatch). Read the current file before retrying.");
+  }
   if (options.createDirs) {
     await fsp.mkdir(path.dirname(resolved.absPath), { recursive: true });
   }
 
   const diff = makeUnifiedDiff(oldText, content, resolved.relPath);
-  await fsp.writeFile(resolved.absPath, content, "utf8");
+  // Keep the final check and write in one JS turn so concurrent MCP edits cannot interleave.
+  guard.resolve(workspace, filePath, { forWrite: true });
+  const current = fs.existsSync(resolved.absPath) ? fs.readFileSync(resolved.absPath, "utf8") : undefined;
+  if (current !== (existed ? oldText : undefined)) throw new LocalWorkspaceBridgeError("File changed during write. Read the current file before retrying.");
+  fs.writeFileSync(resolved.absPath, content, "utf8");
   return { path: resolved.relPath, bytes: contentBytes, sha256: sha256(content), existed, diff };
 }
 
@@ -316,12 +323,15 @@ export async function editTextFile(
   filePath: string,
   oldText: string,
   newText: string,
-  options: { replaceAll?: boolean; expectedReplacements?: number } = {}
+  options: { replaceAll?: boolean; expectedReplacements?: number; expectedSha256?: string } = {}
 ): Promise<{ path: string; replacements: number; bytes: number; sha256: string; diff: DiffResult }> {
   if (!oldText) throw new LocalWorkspaceBridgeError("old_text must not be empty.");
   const resolved = guard.resolve(workspace, filePath, { forWrite: true });
   await guard.assertTextFile(resolved.absPath, Math.max(config.maxWriteBytes, config.maxReadBytes));
   const before = await fsp.readFile(resolved.absPath, "utf8");
+  if (options.expectedSha256 && sha256(before) !== options.expectedSha256) {
+    throw new LocalWorkspaceBridgeError("File changed since read (expected_sha256 mismatch). Read the current file before retrying.");
+  }
   const occurrences = before.split(oldText).length - 1;
   if (occurrences === 0) {
     throw new LocalWorkspaceBridgeError(`old_text was not found in ${resolved.relPath}. Read the file and retry with an exact snippet.`);
@@ -349,11 +359,13 @@ export async function editTextFile(
     throw new LocalWorkspaceBridgeError(`Edited file would be too large (${afterBytes} bytes). Limit: ${config.maxWriteBytes} bytes.`);
   }
   if (hasSecretValue(after)) {
-    throw new LocalWorkspaceBridgeError("Secret-looking content is blocked from edit. Use placeholders such as [REDACTED_SECRET] instead of real credentials.");
+    throw new LocalWorkspaceBridgeError("Secret-looking content is blocked from edit. Use placeholders such as [REDACTED_SECRET] in handoff files.");
   }
 
   const diff = makeUnifiedDiff(before, after, resolved.relPath);
-  await fsp.writeFile(resolved.absPath, after, "utf8");
+  guard.resolve(workspace, filePath, { forWrite: true });
+  if (fs.readFileSync(resolved.absPath, "utf8") !== before) throw new LocalWorkspaceBridgeError("File changed during edit. Read the current file before retrying.");
+  fs.writeFileSync(resolved.absPath, after, "utf8");
   return { path: resolved.relPath, replacements, bytes: afterBytes, sha256: sha256(after), diff };
 }
 

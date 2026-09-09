@@ -4,7 +4,13 @@
 
 AgentDock is a local MCP gateway that gives ChatGPT bounded access to a developer workspace. The model remains the planner; AgentDock supplies repository evidence, local files and images, direct edits, command verification, and Git-aware review.
 
-> **Status:** early public release (`0.1.x`). Review the security model before exposing a local workspace through a public tunnel.
+> **Status:** early public release (`0.2.x`). Review the security model before exposing a local workspace through a public tunnel.
+
+## 0.2.0 agent tools
+
+Persistent commands with incremental logs, stdin, cancellation and HTTP reconnects; isolated local-browser interactions and native screenshots; bounded batch reads and SHA-256 checked edits. The latest Control Center startup, hot settings and PyMuPDF fixes are retained. ChatGPT remains the planner.
+
+See [agent tools](AGENT_TOOLS.md), [ChatGPT instructions](CHATGPT_PROMPT.md) and [changes](CHANGELOG.md). Browser tools require an installed Edge, Chrome or Chromium and target loopback development pages. General scripts and development servers require full bash mode.
 
 ## Why AgentDock
 
