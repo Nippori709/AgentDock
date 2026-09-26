@@ -4,6 +4,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { applyConfig, ensureAgentDockRunning, getState, restartAgentDock } from './backend/controller.mjs';
+import { prepareDedicatedBrowserProfile } from './browser-lifecycle.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HOST = '127.0.0.1';
@@ -135,6 +136,7 @@ function openAppWindow() {
   const browser = browserCandidates().find((candidate) => fs.existsSync(candidate));
   if (browser) {
     fs.mkdirSync(BROWSER_PROFILE_DIR, { recursive: true });
+    prepareDedicatedBrowserProfile(BROWSER_PROFILE_DIR);
     const child = spawn(browser, [
       `--app=${BASE_URL}/`,
       '--new-window',
@@ -142,10 +144,11 @@ function openAppWindow() {
       '--window-position=120,80',
       `--user-data-dir=${BROWSER_PROFILE_DIR}`,
       '--no-first-run',
+      '--disable-extensions',
       '--disable-background-mode'
     ], {
       detached: true,
-      windowsHide: true,
+      // Keep the GUI process visible. windowsHide can hide Chromium's first app window.
       stdio: 'ignore'
     });
     child.unref();
