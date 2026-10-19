@@ -3,7 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { applyConfig, ensureAgentDockRunning, getState, restartAgentDock } from './backend/controller.mjs';
+import { applyConfig, ensureAgentDockRunning, getApprovalKey, getState, restartAgentDock } from './backend/controller.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HOST = '127.0.0.1';
@@ -207,6 +207,12 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && url.pathname === '/api/browse-directories') {
       sendJson(res, 200, browseDirectories(url.searchParams.get('path') || ''));
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/approval-key') {
+      assertControlMutationRequest(req);
+      await readRequestJson(req, 1024);
+      sendJson(res, 200, { approvalKey: getApprovalKey() });
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/apply') {

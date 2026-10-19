@@ -39,6 +39,7 @@
     "CONTRIBUTING.md",
     "LINUX_SERVER.md",
     "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
     "config.example.env",
     "CHATGPT_PROMPT.md",
     "AGENT_TOOLS.md",
@@ -54,12 +55,17 @@
     "control-center/scripts/uninstall.mjs",
     "control-center/scripts/desktop.mjs",
     "control-center/scripts/preview.mjs",
-    "control-center/scripts/run-hidden.vbs"
+    "control-center/scripts/run-hidden.vbs",
+    "scripts/codexpro.mjs",
+    "scripts/runtime/legacy-env.cjs"
   ],
   "bin": {
     "local-workspace-bridge": "scripts/local-workspace-bridge.mjs",
     "local-workspace-bridge-mcp": "dist/stdio.js",
-    "local-workspace-bridge-mcp-http": "dist/http.js"
+    "local-workspace-bridge-mcp-http": "dist/http.js",
+    "codexpro": "scripts/codexpro.mjs",
+    "codexpro-mcp": "dist/stdio.js",
+    "codexpro-mcp-http": "dist/http.js"
   },
   "scripts": {
     "clean": "node scripts/clean.mjs",
@@ -71,6 +77,7 @@
     "dev:stdio": "tsx src/stdio.ts",
     "dev:http": "tsx src/http.ts",
     "smoke": "node scripts/smoke-all.mjs",
+    "claude-harness:smoke": "npm run build && node scripts/claude-harness-smoke.mjs",
     "benchmark": "npm run build && node benchmarks/run.mjs",
     "benchmark:quick": "npm run build && node benchmarks/run.mjs --quick",
     "proxy:smoke": "npm run build && node scripts/proxy-smoke.mjs",
@@ -90,24 +97,30 @@
     "control-center:doctor": "node control-center/scripts/doctor.mjs",
     "control-center:uninstall": "node control-center/scripts/uninstall.mjs",
     "agent:smoke": "npm run build && node scripts/agent-tools-smoke.mjs",
-    "browser:smoke": "npm run build && node scripts/browser-smoke.mjs"
+    "browser:smoke": "npm run build && node scripts/browser-smoke.mjs",
+    "advanced-tools:smoke": "npm run build && node scripts/advanced-tools-smoke.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/node": "^2.0.0",
     "@modelcontextprotocol/sdk": "^1.17.4",
     "@modelcontextprotocol/server": "^2.0.0",
+    "@vscode/ripgrep": "1.18.0",
     "cors": "^2.8.5",
+    "diff": "9.0.0",
     "express": "^5.1.0",
     "ignore": "^7.0.6",
     "minimatch": "^10.0.1",
-    "zod": "^4.4.3",
-    "playwright-core": "^1.63.0"
+    "node-pty": "1.2.0-beta.15",
+    "playwright-core": "^1.63.0",
+    "pyright": "1.1.414",
+    "typescript": "5.9.3",
+    "typescript-language-server": "6.0.1",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/node": "^24.0.0",
-    "tsx": "^4.20.3",
-    "typescript": "^5.8.3"
+    "tsx": "^4.20.3"
   }
 }

@@ -13,6 +13,7 @@ async function apiRequest(url, options = {}) {
 
 const api = {
   getState: () => apiRequest('/api/state'),
+  getApprovalKey: () => apiRequest('/api/approval-key', { method: 'POST', body: '{}' }),
   restart: () => apiRequest('/api/restart-agentdock', { method: 'POST', body: '{}' }),
   browseDirectories: (dir = '') => apiRequest(`/api/browse-directories?path=${encodeURIComponent(dir)}`),
   applyConfig: (config) => apiRequest('/api/apply', {
@@ -42,6 +43,7 @@ const applyMessage = document.querySelector('#applyMessage');
 const resultBanner = document.querySelector('#resultBanner');
 const statusBadge = document.querySelector('#statusBadge');
 const statusText = document.querySelector('#statusText');
+const copyApprovalKeyBtn = document.querySelector('#copyApprovalKeyBtn');
 
 const folderModal = document.querySelector('#folderModal');
 const folderCloseBtn = document.querySelector('#folderCloseBtn');
@@ -177,8 +179,47 @@ function setControlsDisabled(disabled) {
   });
   applyBtn.disabled = disabled;
   restartBtn.disabled = disabled;
+  copyApprovalKeyBtn.disabled = disabled;
   applyBtn.classList.toggle('busy', disabled);
 }
+
+async function copyTextToClipboard(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+  } catch {}
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.append(textarea);
+  textarea.select();
+  const copied = document.execCommand('copy');
+  textarea.remove();
+  if (!copied) throw new Error('浏览器拒绝写入剪贴板');
+}
+
+copyApprovalKeyBtn.addEventListener('click', async () => {
+  if (busy) return;
+  const previousText = copyApprovalKeyBtn.textContent;
+  copyApprovalKeyBtn.disabled = true;
+  copyApprovalKeyBtn.textContent = '复制中…';
+  try {
+    const { approvalKey } = await api.getApprovalKey();
+    if (!approvalKey) throw new Error('未找到 approval key');
+    await copyTextToClipboard(approvalKey);
+    setResult('success', 'OAuth approval key 已复制到剪贴板。');
+  } catch (error) {
+    setResult('error', `复制 approval key 失败：${error?.message || String(error)}`);
+  } finally {
+    copyApprovalKeyBtn.textContent = previousText;
+    copyApprovalKeyBtn.disabled = busy;
+  }
+});
 function updateBashWarning() {
   bashWarning.hidden = radioValue('bashMode') !== 'full';
 }

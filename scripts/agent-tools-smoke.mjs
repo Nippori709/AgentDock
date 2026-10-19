@@ -40,7 +40,7 @@ try {
   `);
   await fs.writeFile(path.join(root, 'sleep.mjs'), 'setInterval(() => {}, 1000);');
   await fs.writeFile(path.join(root, 'secret.mjs'), `
-    process.stdout.write('sk-realSecret');
+    process.stdout.write('[REDACTED_SECRET]');
     setTimeout(() => process.stdout.write('Value123456789\\n中文完整\\n'), 250);
   `);
   await fs.writeFile(path.join(root, 'large.mjs'), `for(let i=0;i<20000;i++) console.log(String(i).padStart(5,'0') + 'x'.repeat(95));`);
@@ -132,6 +132,9 @@ try {
   await client.connect(transport);
   const tools = (await client.listTools()).tools;
   assert(!tools.some(tool => tool.name === 'task_plan'), 'legacy planner must not be in the default schema');
+  assert(!tools.some(tool => tool.name === 'inspect_workspace'), 'repository analysis must be opt-in');
+  assert(!tools.some(tool => tool.name === 'search'), 'structured search must be opt-in');
+  for (const name of ['tree', 'glob', 'grep', 'lsp', 'read', 'read_many']) assert(tools.some(tool => tool.name === name), name);
   for (const name of ['read_many', 'exec_start', 'exec_poll', 'exec_input', 'exec_stop', 'exec_list', 'browser_action', 'browser_snapshot']) assert(tools.some(tool => tool.name === name), name);
   assert.equal(tools.find(tool => tool.name === 'exec_poll').annotations.readOnlyHint, true);
   assert.equal(tools.find(tool => tool.name === 'browser_action').annotations.readOnlyHint, false);
@@ -154,8 +157,11 @@ try {
   assert.equal(concurrent.filter(result => !result.isError).length, 1, 'Only one concurrent writer may use a given file version');
   const started = await call('exec_start', { command: 'node sleep.mjs', request_id: 'mcp-run', wait_ms: 0 });
   assert(!started.isError, JSON.stringify(started));
-  const stopped = await call('exec_stop', { process_id: started.structuredContent.process_id });
-  assert.equal(stopped.structuredContent.running, false);
+  let stopped = await call('exec_stop', { process_id: started.structuredContent.process_id });
+  for (let i = 0; stopped.structuredContent.running && i < 20; i++) {
+    stopped = await call('exec_poll', { process_id: started.structuredContent.process_id, wait_ms: 100 });
+  }
+  assert.equal(stopped.structuredContent.running, false, JSON.stringify(stopped));
   const pageOpened = await call('browser_action', { action: 'open', url });
   assert(!pageOpened.isError, JSON.stringify(pageOpened));
   const image = await call('browser_action', { action: 'screenshot', browser_id: pageOpened.structuredContent.browser_id });
@@ -171,5 +177,10 @@ try {
   if (localServer) await new Promise(resolve => localServer.close(resolve));
   const resolved = path.resolve(root);
   assert(path.dirname(resolved) === path.resolve(os.tmpdir()) && path.basename(resolved).startsWith('local_workspace_bridge-agent-tools-'));
-  await fs.rm(resolved, { recursive: true, force: true });
+  try {
+    await fs.rm(resolved, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+  } catch (error) {
+    if (!error || !['EBUSY', 'EPERM'].includes(error.code)) throw error;
+    console.warn(`WARN temporary test directory remained locked on Windows: ${resolved}`);
+  }
 }

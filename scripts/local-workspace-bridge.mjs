@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import './runtime/legacy-env.cjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -1685,7 +1686,7 @@ function applyTunnelPreferenceToArgs(args, preference) {
   if (preference.tunnelName) args.tunnelName = preference.tunnelName;
   if (preference.ngrokConfig) args.ngrokConfig = preference.ngrokConfig;
   if (preference.cloudflareConfig) args.cloudflareConfig = preference.cloudflareConfig;
-  if (preference.cloudflareTokenFile) args.cloudflareTokenFile = preference.cloudflareTokenFile;
+  if (preference.cloudflareTokenFile) args.cloudflareTokenFile= [REDACTED_SECRET];
 }
 
 function profileFromPreference(root, args, profile, preference) {
@@ -1710,7 +1711,7 @@ function profileFromPreference(root, args, profile, preference) {
     ...(preference.tunnelName ? { tunnelName: preference.tunnelName } : {}),
     ...(preference.ngrokConfig ? { ngrokConfig: preference.ngrokConfig } : {}),
     ...(preference.cloudflareConfig ? { cloudflareConfig: preference.cloudflareConfig } : {}),
-    ...(preference.cloudflareTokenFile ? { cloudflareTokenFile: preference.cloudflareTokenFile } : {}),
+    ...(preference.cloudflareTokenFile ? { cloudflareTokenFile: [REDACTED_SECRET] } : {}),
     ...(token ? { token } : {}),
     ...(bash ? { bash } : {}),
     ...(bashTranscript !== 'compact' ? { bashTranscript } : {}),
@@ -1937,7 +1938,7 @@ async function runSetupWizard(argv) {
         ...(profileTunnelName ? { tunnelName: profileTunnelName } : {}),
         ...(profileNgrokConfig ? { ngrokConfig: profileNgrokConfig } : {}),
         ...(profileCloudflareConfig ? { cloudflareConfig: profileCloudflareConfig } : {}),
-        ...(profileCloudflareTokenFile ? { cloudflareTokenFile: profileCloudflareTokenFile } : {}),
+        ...(profileCloudflareTokenFile ? { cloudflareTokenFile: [REDACTED_SECRET] } : {}),
         ...(profileToken ? { token: profileToken } : {}),
         ...(bash ? { bash } : {}),
         ...(bashTranscript !== 'compact' ? { bashTranscript } : {}),

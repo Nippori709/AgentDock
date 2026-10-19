@@ -63,8 +63,8 @@ function skillCounts(skills: Array<{ source?: string }>): Record<string, number>
   return counts;
 }
 
-async function findAgentsFile(workspace: Workspace): Promise<string | undefined> {
-  const [first] = await findAgentsFilesInDir(workspace, ".");
+async function findAgentsFile(config: LocalWorkspaceBridgeConfig, workspace: Workspace): Promise<string | undefined> {
+  const [first] = await findAgentsFilesInDir(config, workspace, ".");
   return first;
 }
 
@@ -79,20 +79,18 @@ function candidateAgentDirs(targetPath: string): string[] {
   return [...new Set(dirs)];
 }
 
-async function findAgentsFilesInDir(workspace: Workspace, dir: string): Promise<string[]> {
-  const names = ["AGENTS.override.md", "AGENTS.md", "agents.md", ".agents.md"];
+async function findAgentsFilesInDir(config: LocalWorkspaceBridgeConfig, workspace: Workspace, dir: string): Promise<string[]> {
+  const names = config.harnessProfile === "claude"
+    ? ["CLAUDE.md", ".claude/CLAUDE.md"]
+    : ["AGENTS.override.md", "AGENTS.md", "agents.md", ".agents.md"];
   const absDir = path.join(workspace.root, dir);
-  const entries = await safeReaddir(absDir);
-  const files = entries.filter((entry) => entry.isFile());
   const out: string[] = [];
   const seen = new Set<string>();
   for (const name of names) {
-    const entry =
-      files.find((item) => item.name === name) ??
-      files.find((item) => item.name.toLowerCase() === name.toLowerCase());
-    if (!entry) continue;
-    const rel = dir && dir !== "." ? `${dir}/${entry.name}` : entry.name;
-    const real = fs.realpathSync(path.join(workspace.root, rel)).toLowerCase();
+    const rel = dir && dir !== "." ? `${dir}/${name}` : name;
+    const absolute = path.join(workspace.root, rel);
+    if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) continue;
+    const real = fs.realpathSync(absolute).toLowerCase();
     if (seen.has(real)) continue;
     seen.add(real);
     out.push(rel);
@@ -111,7 +109,7 @@ async function readAgentsChain(
   const files: string[] = [];
   const seenRealPaths = new Set<string>();
   const candidates = (
-    await Promise.all(candidateAgentDirs(targetPath).map((dir) => findAgentsFilesInDir(workspace, dir || ".")))
+    await Promise.all(candidateAgentDirs(targetPath).map((dir) => findAgentsFilesInDir(config, workspace, dir || ".")))
   ).flat();
   for (const rel of candidates) {
     try {
@@ -129,7 +127,7 @@ async function readAgentsChain(
     }
   }
   return {
-    text: chunks.length ? chunks.join("\n\n") : "No AGENTS.md-style instruction files found for this target path.",
+    text: chunks.length ? chunks.join("\n\n") : (config.harnessProfile === "claude" ? "No CLAUDE.md instruction files found for this target path." : "No AGENTS.md-style instruction files found for this target path."),
     files
   };
 }
@@ -145,10 +143,12 @@ export async function workspaceSummary(
     : [];
   const skills = skillInventory.map((skill) => skill.name);
   const counts = skillCounts(skillInventory);
-  const agentsPath = await findAgentsFile(workspace);
-  let agentsText = "AGENTS.md: none loaded";
+  const agentsPath = await findAgentsFile(config, workspace);
+  const instructionChain = await readAgentsChain(config, guard, workspace, ".", 40_000);
+  let agentsText = config.harnessProfile === "claude" ? "CLAUDE.md: none loaded" : "AGENTS.md: none loaded";
   if (agentsPath) {
-    agentsText = `AGENTS.md: ${agentsPath} (read this file before editing or making project decisions).`;
+    const label = config.harnessProfile === "claude" ? "CLAUDE.md" : "AGENTS.md";
+    agentsText = `${label}: ${agentsPath}\n\n## Project instructions\n\n${instructionChain.text}`;
   }
 
   let treeText: string | undefined;

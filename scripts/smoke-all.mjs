@@ -3,8 +3,9 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const tests = [
+  'claude-harness-smoke',
   'analysis-smoke', 'analysis-cli-smoke', 'shell-smoke', 'linux-service-smoke',
-  'image-smoke', 'document-smoke', 'browser-smoke', 'agent-tools-smoke',
+  'image-smoke', 'document-smoke', 'browser-smoke', 'agent-tools-smoke', 'advanced-tools-smoke',
   'smoke', 'runtime-hot-smoke', 'http-smoke'
 ];
 
@@ -12,7 +13,12 @@ for (const test of tests) {
   console.log(`[smoke] ${test}`);
   const result = await new Promise(resolve => {
     const child = spawn(process.execPath, [`scripts/${test}.mjs`], {
-      cwd: root, env: process.env, stdio: 'inherit', windowsHide: true
+      cwd: root,
+      env: {
+        ...process.env,
+        ...(test === 'claude-harness-smoke' ? { LOCALWORKSPACEBRIDGE_HARNESS_PROFILE: 'claude' } : { LOCALWORKSPACEBRIDGE_HARNESS_PROFILE: 'native' })
+      },
+      stdio: 'inherit', windowsHide: true
     });
     child.once('error', error => resolve({ code: 1, error: error.message }));
     child.once('close', (code, signal) => resolve({ code, signal }));

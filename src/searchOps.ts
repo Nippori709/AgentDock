@@ -1,12 +1,17 @@
 import fsp from "node:fs/promises";
+import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import type { LocalWorkspaceBridgeConfig } from "./config.js";
 import type { Workspace } from "./guard.js";
 import { LocalWorkspaceBridgeError, PathGuard } from "./guard.js";
 import { listFiles, textScanByteLimit } from "./fsOps.js";
 import { redactSensitiveText } from "./redact.js";
 import { searchWorkspaceStructured, type AnalysisSearchIntent, type StructuredSearchResult } from "./analysis/index.js";
+
+const require = createRequire(import.meta.url);
+const rgPath = (require("@vscode/ripgrep") as { rgPath: string }).rgPath;
 
 export interface SearchOptions {
   query: string;
@@ -15,6 +20,7 @@ export interface SearchOptions {
   glob?: string;
   includeHidden: boolean;
   maxResults: number;
+  multiline?: boolean;
   intent?: AnalysisSearchIntent;
   symbol?: string;
   includeTests?: boolean;
@@ -28,14 +34,11 @@ export interface SearchResult {
   analysis?: StructuredSearchResult;
 }
 
-function commandExists(command: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const child = process.platform === "win32"
-      ? spawn("where", [command], { stdio: "ignore", shell: false })
-      : spawn("/bin/sh", ["-lc", `command -v ${command} >/dev/null 2>&1`], { stdio: "ignore" });
-    child.on("close", (code) => resolve(code === 0));
-    child.on("error", () => resolve(false));
-  });
+export interface GlobResult {
+  text: string;
+  paths: string[];
+  truncated: boolean;
+  used: "ripgrep";
 }
 
 function truncateLine(line: string, max = 400): string {
@@ -47,6 +50,7 @@ async function runRipgrep(config: LocalWorkspaceBridgeConfig, guard: PathGuard, 
   const target = guard.resolve(workspace, options.root ?? ".");
   const args = ["--json", "--line-number", "--with-filename", "--no-heading", "--color=never", "--max-columns", "500", "--max-count", "50", "--max-filesize", String(textScanByteLimit(config))];
   if (!options.regex) args.push("--fixed-strings");
+  if (options.multiline) args.push("--multiline", "--multiline-dotall");
   if (options.includeHidden) args.push("--hidden");
   for (const glob of config.blockedGlobs) args.push("-g", `!${glob}`);
   if (options.glob) args.push("-g", options.glob);
@@ -55,7 +59,7 @@ async function runRipgrep(config: LocalWorkspaceBridgeConfig, guard: PathGuard, 
   args.push("-e", options.query, "--", target.absPath);
 
   return new Promise((resolve, reject) => {
-    const child = spawn("rg", args, { cwd: workspace.root, env: { ...process.env, NO_COLOR: "1" } });
+    const child = spawn(rgPath, args, { cwd: workspace.root, env: { ...process.env, NO_COLOR: "1" }, shell: false });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => {
@@ -141,16 +145,16 @@ export async function searchWorkspace(config: LocalWorkspaceBridgeConfig, guard:
     glob: rawOptions.glob,
     includeHidden: Boolean(rawOptions.includeHidden),
     maxResults: Math.max(1, Math.min(rawOptions.maxResults ?? config.maxSearchResults, config.maxSearchResults)),
+    multiline: Boolean(rawOptions.multiline),
     intent: rawOptions.intent,
     symbol: rawOptions.symbol,
     includeTests: rawOptions.includeTests
   };
   let lexical: SearchResult;
-  if (await commandExists("rg")) {
+  try {
     lexical = await runRipgrep(config, guard, workspace, options);
-  } else if (options.regex) {
-    throw new LocalWorkspaceBridgeError("regex search requires ripgrep. Install rg or retry with regex=false.");
-  } else {
+  } catch (error) {
+    if (options.regex) throw error;
     lexical = await runNodeSearch(config, guard, workspace, options);
   }
   const structuredRequested = rawOptions.intent !== undefined || rawOptions.symbol !== undefined || rawOptions.includeTests !== undefined;
@@ -190,4 +194,71 @@ export async function searchWorkspace(config: LocalWorkspaceBridgeConfig, guard:
     };
   }
   return lexical;
+}
+
+export async function globWorkspace(
+  config: LocalWorkspaceBridgeConfig,
+  guard: PathGuard,
+  workspace: Workspace,
+  options: { pattern: string; root?: string; includeHidden?: boolean; maxResults?: number }
+): Promise<GlobResult> {
+  const pattern = options.pattern?.trim();
+  if (!pattern) throw new LocalWorkspaceBridgeError("pattern is required.");
+  const maxResults = Math.max(1, Math.min(options.maxResults ?? config.maxSearchResults, config.maxSearchResults));
+  const target = guard.resolve(workspace, options.root ?? ".");
+  const stat = await fsp.stat(target.absPath);
+  if (!stat.isDirectory()) throw new LocalWorkspaceBridgeError(`Glob root is not a directory: ${target.relPath}`);
+  const args = ["--files", "--color=never"];
+  if (options.includeHidden) args.push("--hidden");
+  for (const blocked of config.blockedGlobs) args.push("-g", `!${blocked}`);
+  args.push("-g", pattern, "--", target.absPath);
+
+  return await new Promise((resolve, reject) => {
+    const child = spawn(rgPath, args, { cwd: workspace.root, env: { ...process.env, NO_COLOR: "1" }, shell: false });
+    let stdout = "";
+    let stderr = "";
+    let capped = false;
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      if (capped) return;
+      stdout += chunk;
+      if (stdout.length > config.maxOutputBytes) {
+        stdout = stdout.slice(0, config.maxOutputBytes);
+        capped = true;
+        child.kill("SIGTERM");
+      }
+    });
+    child.stderr.on("data", (chunk: string) => { stderr = (stderr + chunk).slice(-16_000); });
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code && code > 1 && !capped) {
+        reject(new LocalWorkspaceBridgeError(stderr.trim() || `ripgrep glob failed with exit code ${code}`));
+        return;
+      }
+      const visible: string[] = [];
+      let count = 0;
+      for (const line of stdout.split(/\r?\n/)) {
+        if (!line) continue;
+        const absPath = path.isAbsolute(line) ? path.resolve(line) : path.resolve(workspace.root, line);
+        const rel = path.relative(workspace.root, absPath).split(path.sep).join("/");
+        if (rel.startsWith("..") || guard.isBlockedRelativePath(rel)) continue;
+        count += 1;
+        if (visible.length < maxResults) visible.push(rel);
+      }
+      visible.sort((a, b) => {
+        try {
+          return fs.statSync(path.join(workspace.root, b)).mtimeMs - fs.statSync(path.join(workspace.root, a)).mtimeMs;
+        } catch {
+          return a.localeCompare(b);
+        }
+      });
+      resolve({
+        text: visible.join("\n") || "No matches.",
+        paths: visible,
+        truncated: capped || count > visible.length,
+        used: "ripgrep"
+      });
+    });
+  });
 }

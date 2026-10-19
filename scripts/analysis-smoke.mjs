@@ -71,7 +71,10 @@ try {
     importBuilt('analysis/index.js')
   ]);
   const config = loadConfig(['--root', tmp, '--bash', 'off', '--write', 'off']);
+  assert.equal(config.analysisEnabled, false);
+  config.analysisEnabled = true;
   const lowMemoryConfig = loadConfig(['--root', tmp, '--low-memory', '--bash', 'off', '--write', 'off']);
+  lowMemoryConfig.analysisEnabled = true;
   assert.equal(lowMemoryConfig.lowMemory, true);
   assert.equal(lowMemoryConfig.maxSearchResults, 100);
   assert.equal(lowMemoryConfig.maxHttpSessions, 16);

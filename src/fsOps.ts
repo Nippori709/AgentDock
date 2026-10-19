@@ -3,6 +3,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { minimatch } from "minimatch";
+import { structuredPatch } from "diff";
 import type { LocalWorkspaceBridgeConfig } from "./config.js";
 import type { Workspace } from "./guard.js";
 import { LocalWorkspaceBridgeError, displayPath, normalizeRelPath, PathGuard } from "./guard.js";
@@ -64,42 +65,19 @@ export function makeUnifiedDiff(oldText: string, newText: string, relPath: strin
   if (oldText === newText) {
     return { diff: `No changes in ${relPath}.`, additions: 0, deletions: 0, changed: false };
   }
-
-  const oldLines = splitLines(oldText);
-  const newLines = splitLines(newText);
-  let prefix = 0;
-  while (prefix < oldLines.length && prefix < newLines.length && oldLines[prefix] === newLines[prefix]) {
-    prefix += 1;
+  const patch = structuredPatch("", "", oldText, newText, undefined, undefined, { context: 3 });
+  let additions = 0;
+  let deletions = 0;
+  const out: string[] = [`--- a/${relPath}`, `+++ b/${relPath}`];
+  for (const hunk of patch.hunks) {
+    out.push(`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`);
+    for (const line of hunk.lines) {
+      if (line.startsWith("\\")) continue;
+      if (line.startsWith("+")) additions += 1;
+      else if (line.startsWith("-")) deletions += 1;
+      out.push(line);
+    }
   }
-
-  let suffix = 0;
-  while (
-    suffix < oldLines.length - prefix &&
-    suffix < newLines.length - prefix &&
-    oldLines[oldLines.length - 1 - suffix] === newLines[newLines.length - 1 - suffix]
-  ) {
-    suffix += 1;
-  }
-
-  const coreOldStart = prefix;
-  const coreOldEnd = oldLines.length - suffix;
-  const coreNewStart = prefix;
-  const coreNewEnd = newLines.length - suffix;
-  const context = 3;
-  const oldStart = Math.max(0, coreOldStart - context);
-  const oldEnd = Math.min(oldLines.length, coreOldEnd + context);
-  const newStart = Math.max(0, coreNewStart - context);
-  const newEnd = Math.min(newLines.length, coreNewEnd + context);
-
-  const additions = Math.max(0, coreNewEnd - coreNewStart);
-  const deletions = Math.max(0, coreOldEnd - coreOldStart);
-
-  const out: string[] = [`--- a/${relPath}`, `+++ b/${relPath}`, `@@ -${oldStart + 1},${oldEnd - oldStart} +${newStart + 1},${newEnd - newStart} @@`];
-
-  for (let i = oldStart; i < coreOldStart; i += 1) out.push(` ${oldLines[i]}`);
-  for (let i = coreOldStart; i < coreOldEnd; i += 1) out.push(`-${oldLines[i]}`);
-  for (let i = coreNewStart; i < coreNewEnd; i += 1) out.push(`+${newLines[i]}`);
-  for (let i = coreOldEnd; i < oldEnd; i += 1) out.push(` ${oldLines[i]}`);
 
   let diff = out.join("\n");
   if (diff.length > maxChars) {
@@ -368,4 +346,3 @@ export async function editTextFile(
   fs.writeFileSync(resolved.absPath, after, "utf8");
   return { path: resolved.relPath, replacements, bytes: afterBytes, sha256: sha256(after), diff };
 }
-

@@ -32,8 +32,10 @@ import {
   readPdfPage,
   readPdfText
 } from "./documentOps.js";
-import { searchWorkspace } from "./searchOps.js";
+import { globWorkspace, searchWorkspace } from "./searchOps.js";
 import { runBash } from "./bashOps.js";
+import { getLspManager, queryLsp, syncLspFile } from "./lspOps.js";
+import { getTerminalManager } from "./terminalOps.js";
 import { gitDiff, gitDiffNumstat, gitDiffStatus, gitLog, gitStatus } from "./gitOps.js";
 import { workspaceSummary } from "./workspaceOps.js";
 import { localWorkspaceBridgeInventory, loadSkill } from "./capabilitiesOps.js";
@@ -41,6 +43,11 @@ import { listCodexSessions, readCodexSession } from "./codexSessions.js";
 import { TOOL_CARD_MIME_TYPE, TOOL_CARD_URI, toolCardWidgetHtml } from "./toolCardWidget.js";
 import { hasSecretValue, redactSensitiveText, redactStructured } from "./redact.js";
 import { inspectWorkspace, invalidateWorkspaceAnalysis, reviewWorkspaceChanges, type AnalysisMode } from "./analysis/index.js";
+import { applyToolResultRetention, enforceToolPermissionRules } from "./toolRuntimeOps.js";
+import { listTasks, readTaskOutput, stopTask } from "./taskOps.js";
+import { readNotebook, editNotebook } from "./notebookOps.js";
+import { createWorktree, listWorktrees, removeWorktree } from "./worktreeOps.js";
+import { runLocalHooks } from "./hookOps.js";
 
 const STRUCTURED_STRING_MAX_CHARS = 60_000;
 const BROWSER_SCREENSHOT_ANNOTATIONS = { readOnlyHint: false, openWorldHint: true, destructiveHint: false, idempotentHint: false };
@@ -178,7 +185,19 @@ const TOOL_CARD_RENDER_TOOL_NAMES = new Set<string>([
   "inspect_workspace",
   "show_changes",
   "git_status",
-  "bash"
+  "bash",
+  "search",
+  "grep",
+  "lsp",
+  "exec_start",
+  "exec_poll",
+  "exec_list",
+  "terminal_open",
+  "terminal_read",
+  "terminal_list",
+  "task_list",
+  "task_output",
+  "task_stop"
 ]);
 
 const OPTIONAL_TOOL_CARD_META = [
@@ -337,7 +356,7 @@ function registerToolCompat(
       cursor_hash: shortHash(args?.cursor) ?? null
     };
     try {
-      const result = tagToolResult(await handler(args ?? {}), name, options);
+      const result = applyToolResultRetention(config, name, tagToolResult(await handler(args ?? {}), name, options));
       logToolCall(name, result?.isError ? "error" : "ok", started, {
         ...diagnostics,
         response_bytes: Buffer.byteLength(JSON.stringify(result), "utf8"),
@@ -348,7 +367,7 @@ function registerToolCompat(
       const retryAllowed = IDEMPOTENT_RETRY_TOOLS.has(name) || (name === "show_changes" && args?.include_diff === false);
       if (retryAllowed && isTransientReadError(error)) {
         try {
-          const result = tagToolResult(await handler(args ?? {}), name, options);
+          const result = applyToolResultRetention(config, name, tagToolResult(await handler(args ?? {}), name, options));
           logToolCall(name, result?.isError ? "error" : "ok", started, {
             ...diagnostics,
             response_bytes: Buffer.byteLength(JSON.stringify(result), "utf8"),
@@ -426,11 +445,21 @@ const MINIMAL_TOOL_NAMES = [
 ] as const;
 
 const STANDARD_TOOL_NAMES = [
-  "read_many", "exec_start", "exec_poll", "exec_input", "exec_stop", "exec_list", "browser_action", "browser_snapshot", "browser_screenshot",
+  "read_many", "exec_start", "exec_poll", "exec_input", "exec_stop", "exec_list", "task_list", "task_output", "task_stop", "browser_action", "browser_snapshot", "browser_screenshot",
   ...MINIMAL_TOOL_NAMES,
   "inspect_workspace",
   "tree",
+  "glob",
+  "grep",
   "search",
+  "lsp",
+  "terminal_open",
+  "terminal_read",
+  "terminal_send",
+  "terminal_signal",
+  "terminal_resize",
+  "terminal_list",
+  "terminal_close",
   "load_skill",
   "list_workspaces",
   "close_workspace",
@@ -438,7 +467,7 @@ const STANDARD_TOOL_NAMES = [
 ] as const;
 
 const FULL_TOOL_NAMES = [
-  "read_many", "exec_start", "exec_poll", "exec_input", "exec_stop", "exec_list", "browser_action", "browser_snapshot", "browser_screenshot",
+  "read_many", "exec_start", "exec_poll", "exec_input", "exec_stop", "exec_list", "task_list", "task_output", "task_stop", "browser_action", "browser_snapshot", "browser_screenshot",
   SUPERTOOL_NAME,
   "server_config",
   "local_workspace_bridge_self_test",
@@ -452,7 +481,10 @@ const FULL_TOOL_NAMES = [
   "workspace_snapshot",
   "inspect_workspace",
   "tree",
+  "glob",
+  "grep",
   "search",
+  "lsp",
   "read",
   "read_pdf",
   "read_pdf_page",
@@ -465,14 +497,22 @@ const FULL_TOOL_NAMES = [
   "edit",
   "apply_patch",
   "bash",
+  "terminal_open",
+  "terminal_read",
+  "terminal_send",
+  "terminal_signal",
+  "terminal_resize",
+  "terminal_list",
+  "terminal_close",
   "git_status",
   "git_diff",
   "show_changes",
-  
+
 ] as const;
 
 const CONNECTION_TEST_HIDDEN_TOOLS = new Set<string>([
-  "exec_start", "exec_poll", "exec_input", "exec_stop", "exec_list", "browser_action", "browser_snapshot", "browser_screenshot",
+  "exec_start", "exec_poll", "exec_input", "exec_stop", "exec_list", "task_list", "task_output", "task_stop", "browser_action", "browser_snapshot", "browser_screenshot",
+  "terminal_open", "terminal_read", "terminal_send", "terminal_signal", "terminal_resize", "terminal_list", "terminal_close",
   SUPERTOOL_NAME,
   "local_workspace_bridge_self_test",
   "write",
@@ -489,6 +529,14 @@ function codexSessionToolNames(config: LocalWorkspaceBridgeConfig): string[] {
 }
 
 function toolNamesForMode(config: LocalWorkspaceBridgeConfig): string[] {
+  if (config.harnessProfile === "claude") {
+    const names = [...CLAUDE_MCP_ADAPTER_TOOLS, ...CLAUDE_HARNESS_TOOLS];
+    return names.filter((name) => {
+      if (name === "Bash" && config.bashMode === "off") return false;
+      if ((name === "Write" || name === "Edit" || name === "NotebookEdit") && config.writeMode !== "workspace") return false;
+      return true;
+    });
+  }
   const names: string[] =
     config.toolMode === "full"
       ? [...FULL_TOOL_NAMES]
@@ -496,7 +544,10 @@ function toolNamesForMode(config: LocalWorkspaceBridgeConfig): string[] {
         ? [...MINIMAL_TOOL_NAMES]
         : [...STANDARD_TOOL_NAMES];
   if (config.bashMode === "off") {
-    for (let i = names.length - 1; i >= 0; i--) if (names[i] === "bash" || names[i].startsWith("exec_")) names.splice(i, 1);
+    for (let i = names.length - 1; i >= 0; i--) if (names[i] === "bash" || names[i].startsWith("exec_") || names[i].startsWith("task_")) names.splice(i, 1);
+  }
+  if (config.bashMode !== "full") {
+    for (let i = names.length - 1; i >= 0; i--) if (names[i].startsWith("terminal_")) names.splice(i, 1);
   }
   if (config.writeMode !== "workspace") {
     for (const writeTool of ["write", "edit", "apply_patch", "browser_action", "browser_snapshot", "browser_screenshot"]) {
@@ -505,7 +556,7 @@ function toolNamesForMode(config: LocalWorkspaceBridgeConfig): string[] {
     }
   }
   if (!config.analysisEnabled) {
-    for (const analysisTool of ["inspect_workspace"]) {
+    for (const analysisTool of ["inspect_workspace", "search"]) {
       const analysisIndex = names.indexOf(analysisTool);
       if (analysisIndex !== -1) names.splice(analysisIndex, 1);
     }
@@ -524,6 +575,13 @@ function toolNamesForMode(config: LocalWorkspaceBridgeConfig): string[] {
 
 const MINIMAL_TOOLS = new Set<string>(MINIMAL_TOOL_NAMES);
 const STANDARD_TOOLS = new Set<string>(STANDARD_TOOL_NAMES);
+const CLAUDE_HARNESS_TOOLS = new Set<string>([
+  "Read", "Write", "Edit", "Glob", "Grep", "Bash", "LSP", "NotebookEdit",
+  "TaskOutput", "TaskStop", "Skill", "WorktreeCreate", "WorktreeList", "WorktreeRemove"
+]);
+const CLAUDE_MCP_ADAPTER_TOOLS = new Set<string>([
+  "server_config", "open_current_workspace", "open_workspace", "list_workspaces", "close_workspace", "set_default_workspace"
+]);
 const registeredToolNamesByServer = new WeakMap<object, string[]>();
 const stableToolSchemaServers = new WeakSet<object>();
 
@@ -540,12 +598,19 @@ function registeredToolNames(server: McpServer): string[] {
 
 function shouldRegisterTool(config: LocalWorkspaceBridgeConfig, name: string): boolean {
   if (config.connectionTest && CONNECTION_TEST_HIDDEN_TOOLS.has(name)) return false;
-  if ((name === "bash" || name.startsWith("exec_")) && config.bashMode === "off") return false;
+  if ((name === "bash" || name.startsWith("exec_") || name.startsWith("task_")) && config.bashMode === "off") return false;
+  if (name.startsWith("terminal_") && (config.bashMode !== "full" || config.toolMode === "minimal")) return false;
   if (name.startsWith("browser_") && config.writeMode !== "workspace") return false;
   if ((name === "write" || name === "edit" || name === "apply_patch") && config.writeMode !== "workspace") return false;
   if (name === "codex_sessions") return config.codexSessions !== "off";
   if (name === "read_codex_session") return config.codexSessions === "read";
-  if (name === "inspect_workspace" && !config.analysisEnabled) return false;
+  if ((name === "inspect_workspace" || name === "search") && !config.analysisEnabled) return false;
+  if (config.harnessProfile === "claude") {
+    if (!CLAUDE_HARNESS_TOOLS.has(name) && !CLAUDE_MCP_ADAPTER_TOOLS.has(name)) return false;
+    if (name === "Bash" && config.bashMode === "off") return false;
+    if ((name === "Write" || name === "Edit" || name === "NotebookEdit") && config.writeMode !== "workspace") return false;
+    return true;
+  }
   if (config.toolMode === "full") return true;
   if (config.toolMode === "minimal") return MINIMAL_TOOLS.has(name);
   return STANDARD_TOOLS.has(name);
@@ -555,7 +620,10 @@ function shouldCreateStableTool(config: LocalWorkspaceBridgeConfig, name: string
   if (config.connectionTest && CONNECTION_TEST_HIDDEN_TOOLS.has(name)) return false;
   if (name === "codex_sessions") return config.codexSessions !== "off";
   if (name === "read_codex_session") return config.codexSessions === "read";
-  if (name === "inspect_workspace" && !config.analysisEnabled) return false;
+  if ((name === "inspect_workspace" || name === "search") && !config.analysisEnabled) return false;
+  if (config.harnessProfile === "claude") {
+    return CLAUDE_HARNESS_TOOLS.has(name) || CLAUDE_MCP_ADAPTER_TOOLS.has(name);
+  }
   return true;
 }
 
@@ -575,7 +643,9 @@ function registerCodexTool(
           `Current modes: tool=${config.toolMode}, bash=${config.bashMode}, write=${config.writeMode}.`
       );
     }
-    return handler(validateToolArgs(name, options, args));
+    const validated = validateToolArgs(name, options, args);
+    enforceToolPermissionRules(config, name, validated ?? {}, options);
+    return handler(validated);
   };
   registerToolCompat(config, server, name, descriptorOptionsForConfig(config, name, options), validatedHandler);
   rememberRegisteredTool(server, name);
@@ -583,6 +653,20 @@ function registerCodexTool(
 }
 
 function serverInstructions(config: LocalWorkspaceBridgeConfig): string {
+  if (config.harnessProfile === "claude") {
+    return [
+      "LocalWorkspaceBridge is running in Claude-compatible local-harness mode for ChatGPT.",
+      "ChatGPT owns the model, conversation context, user interaction, web access, planning state, and any model-level delegation. Do not emulate those responsibilities through the MCP server.",
+      "Use the local harness directly: Glob for file discovery, Grep for regex/content search, LSP for semantic code navigation, Read for exact evidence, Edit/Write for filesystem changes, and Bash for commands. Use NotebookEdit for .ipynb cells and Skill for local skill instructions.",
+      "For long commands, call Bash with run_in_background=true, then use TaskOutput or TaskStop. WorktreeCreate returns a separate workspace_id because MCP cannot change the host conversation cwd implicitly.",
+      "Do not ask the harness to pre-summarize repositories. Build understanding from direct tool evidence. Prefer LSP over Grep for definitions/references when the language server supports the file.",
+      "Read accepts text, images, PDFs, DOCX, and Jupyter notebooks. Avoid rereading a file after Edit/Write unless exact final content is needed.",
+      config.hooksEnabled
+        ? "Claude-compatible local command hooks are enabled from .claude/settings.json and .claude/settings.local.json for server-observable local events."
+        : "Local command hooks are disabled by default because this MCP host has no Claude Code repository-trust prompt.",
+      "Current local modes: bash=" + config.bashMode + ", write=" + config.writeMode + ", hooks=" + (config.hooksEnabled ? "on" : "off") + "."
+    ].join("\n");
+  }
   const editInstruction =
     config.connectionTest
       ? "4. Connection test mode is read-only. Write and patch tools are unavailable."
@@ -592,7 +676,10 @@ function serverInstructions(config: LocalWorkspaceBridgeConfig): string {
   const bashInstruction =
     config.bashMode === "off"
       ? "5. Bash is disabled and the bash tool is unavailable. Do not attempt shell commands."
-      : "5. Use bash for short commands. Use exec_start for a long build, test, or local development server; retain its process_id and cursor, then exec_poll for output, exec_input for stdin (full mode), and exec_stop when finished. Reuse request_id only when retrying the same start. A wait timeout is not process completion.";
+      : "5. Use bash for short commands. Use exec_start for a long build, test, or local development server. For background work, task_list/task_output/task_stop provide a unified view over processes and persistent terminals; use raw exec_input or terminal_send only when stdin or interactive shell state is specifically needed. Reuse request_id only when retrying the same start. A wait timeout is not process completion.";
+  const analysisInstruction = config.analysisEnabled
+    ? "Repository analysis is opt-in. Prefer the primitive exploration path first; use inspect_workspace or structured search only when a broad cross-language overview or impact sweep is genuinely cheaper than direct glob/grep/LSP/read exploration."
+    : "Repository analysis is disabled by default. Build understanding directly from tree/glob/grep/LSP/read evidence instead of relying on a precomputed repository summary.";
 
   return [
     "LocalWorkspaceBridge connects ChatGPT to one local development workspace.",
@@ -601,11 +688,14 @@ function serverInstructions(config: LocalWorkspaceBridgeConfig): string {
     "Preferred workflow:",
     "1. Start with open_current_workspace. Use open_workspace only when the user gives a different root or asks to switch folders.",
     "2. Follow any AGENTS.md-style instructions returned by the workspace open call before editing files.",
-    "3. Inspect text with tree, search, and read. Use read_pdf for PDF text, read_pdf_page when PDF layout or scanned content needs visual inspection, and read_docx for Word .docx content. For .jpg, .jpeg, .png, or .webp files, use read_image so the visual model receives native image content; never use text read or bash as a substitute for supported document/image reading.",
+    "3. For code exploration, default to Claude-style primitives: tree/glob for structure and file discovery, grep for lexical lookup, LSP for semantic navigation, then read/read_many for the exact files or ranges you need. Let the model decide the exploration sequence rather than asking the harness to pre-summarize the repository. Persistent language servers are reused and file edits are synchronized automatically. Use read_pdf for PDF text, read_pdf_page when PDF layout or scanned content needs visual inspection, and read_docx for Word .docx content. For .jpg, .jpeg, .png, or .webp files, use read_image so the visual model receives native image content; never use text read or bash as a substitute for supported document/image reading.",
+    analysisInstruction,
     editInstruction,
     bashInstruction,
     "6. Use read_many for bounded related-file reads. Preserve the returned sha256 and pass expected_sha256 to write/edit when modifying a file you read; reread after a conflict. Review the actual changes and run relevant checks before reporting completion.",
-    "For a local frontend, start the development server with exec_start, inspect with browser_action/browser_snapshot, and verify the rendered result with browser_action screenshot or browser_screenshot. Use observed role/name or selectors. Report test failures and blocked steps honestly; do not repeat an uncertain mutating action blindly.",
+    config.bashMode === "full" && config.toolMode !== "minimal"
+      ? "For interactive shells, REPLs, and stateful CLI sessions use terminal_open/read/send/signal/close instead of exec_input. For a local frontend, start the development server with exec_start, inspect with browser_action/browser_snapshot, and verify the rendered result with browser_action screenshot or browser_screenshot."
+      : "For a local frontend, start the development server with exec_start, inspect with browser_action/browser_snapshot, and verify the rendered result with browser_action screenshot or browser_screenshot. Use observed role/name or selectors. Report test failures and blocked steps honestly; do not repeat an uncertain mutating action blindly.",
     config.codexSessions !== "off"
       ? `7. Codex session history access is enabled in ${config.codexSessions} mode. Use it only when the user asks for local Codex session history.`
       : "",
@@ -1141,6 +1231,8 @@ export function reconcileLocalWorkspaceBridgeRuntimeConfig(
   }
   void getExecManager(config).reconcile();
   void getBrowserSessionManager(config).reconcile();
+  void getTerminalManager(config).reconcile();
+  void getLspManager(config).reconcile(config.allowedRoots);
   return { closedWorkspaceIds, allowedTools: toolNamesForMode(config) };
 }
 
@@ -1151,6 +1243,27 @@ export function createLocalWorkspaceBridgeServer(config: LocalWorkspaceBridgeCon
   if (options.stableToolSchema) stableToolSchemaServers.add(server);
   registeredToolNamesByServer.set(server as object, []);
   registerToolCardResource(server, config);
+
+  async function withClaudeHooks<T>(
+    workspace: Workspace,
+    toolName: string,
+    toolInput: Record<string, unknown>,
+    action: () => Promise<T>
+  ): Promise<T> {
+    await runLocalHooks(config, workspace, "PreToolUse", toolName, toolInput);
+    try {
+      const result = await action();
+      await runLocalHooks(config, workspace, "PostToolUse", toolName, toolInput, { tool_result: result }).catch(() => {});
+      return result;
+    } catch (error) {
+      await runLocalHooks(config, workspace, "PostToolUseFailure", toolName, toolInput, { error: errorText(error) }).catch(() => {});
+      throw error;
+    }
+  }
+
+  async function notifyFileChanged(workspace: Workspace, toolName: string, toolInput: Record<string, unknown>, changedPath: string): Promise<void> {
+    await runLocalHooks(config, workspace, "FileChanged", toolName, toolInput, { file_path: changedPath }).catch(() => {});
+  }
 
   registerCodexTool(
     config,
@@ -1279,7 +1392,14 @@ export function createLocalWorkspaceBridgeServer(config: LocalWorkspaceBridgeCon
         codexDir: config.codexDir,
         writeMode: config.writeMode,
         toolMode: config.toolMode,
+        harnessProfile: config.harnessProfile,
+        hooksEnabled: config.hooksEnabled,
         toolCards: config.toolCards,
+        permissionPolicy: config.permissionPolicy,
+        permissionAllowRules: config.permissionAllowRules,
+        permissionDenyRules: config.permissionDenyRules,
+        toolResultRetention: config.toolResultRetention,
+        maxToolResultBytes: config.maxToolResultBytes,
         connectionTest: config.connectionTest,
         analysisEnabled: config.analysisEnabled,
         analysisLimits: config.analysisLimits,
@@ -1635,6 +1755,8 @@ export function createLocalWorkspaceBridgeServer(config: LocalWorkspaceBridgeCon
         root: summary.root,
         agents_loaded: summary.agentsLoaded,
         agents_path: summary.agentsPath,
+        instructions_loaded: summary.agentsLoaded,
+        instructions_path: summary.agentsPath,
         skills: summary.skills,
         skill_inventory: summary.skillInventory,
         skill_counts: summary.skillCounts,
@@ -1654,7 +1776,9 @@ export function createLocalWorkspaceBridgeServer(config: LocalWorkspaceBridgeCon
     {
       title: "Open Workspace",
       description:
-        "Open a local project directory as a LocalWorkspaceBridge workspace. Returns a workspace_id plus git status, AGENTS.md, and a compact file tree.",
+        config.harnessProfile === "claude"
+          ? "Open a local project directory as a LocalWorkspaceBridge workspace. Returns a workspace_id plus git status, CLAUDE.md project instructions when present, and a compact file tree."
+          : "Open a local project directory as a LocalWorkspaceBridge workspace. Returns a workspace_id plus git status, AGENTS.md-style project instructions, and a compact file tree.",
       inputSchema: {
         root: z.string().optional().describe("Project directory to open. Omit to use LOCALWORKSPACEBRIDGE_ROOT/current working directory. Supports ~/ paths."),
         path: z.string().optional().describe("Alias for root. Useful for clients that naturally send path instead of root."),
@@ -1688,6 +1812,8 @@ export function createLocalWorkspaceBridgeServer(config: LocalWorkspaceBridgeCon
         root: summary.root,
         agents_loaded: summary.agentsLoaded,
         agents_path: summary.agentsPath,
+        instructions_loaded: summary.agentsLoaded,
+        instructions_path: summary.agentsPath,
         skills: summary.skills,
         skill_inventory: summary.skillInventory,
         skill_counts: summary.skillCounts,
@@ -1965,6 +2091,65 @@ export function createLocalWorkspaceBridgeServer(config: LocalWorkspaceBridgeCon
     }
   );
 
+  registerCodexTool(config, server, "glob", {
+    title: "Glob Files",
+    description: "Find workspace files by glob pattern using the bundled ripgrep binary. Use this for file discovery when you know a filename or extension pattern.",
+    inputSchema: {
+      workspace_id: z.string().optional().describe("Workspace id from open_workspace. Omit to use default workspace."),
+      pattern: z.string().min(1).describe("Glob pattern, for example src/**/*.ts or **/*.py."),
+      path: z.string().optional().describe("Directory relative to workspace root. Default: ."),
+      include_hidden: z.boolean().optional().describe("Include hidden files that are not blocked. Default: false."),
+      max_results: z.number().int().min(1).max(2000).optional().describe("Maximum paths returned. Default from config.")
+    },
+    annotations: READ_ONLY_ANNOTATIONS
+  }, async args => {
+    const workspace = workspaces.getWorkspace(args.workspace_id);
+    const result = await globWorkspace(config, guard, workspace, {
+      pattern: args.pattern,
+      root: args.path ?? ".",
+      includeHidden: parseBool(args.include_hidden, false),
+      maxResults: limitInt(args.max_results, config.maxSearchResults, 1, config.maxSearchResults)
+    });
+    return textResult(result.text, { workspace_id: workspace.id, root: workspace.root, ...result });
+  });
+
+  registerCodexTool(config, server, "grep", {
+    title: "Grep Files",
+    description: "Search file contents with the bundled ripgrep binary. Use for direct text or regex lookup without repository-analysis expansion.",
+    inputSchema: {
+      workspace_id: z.string().optional().describe("Workspace id from open_workspace. Omit to use default workspace."),
+      query: z.string().min(1).describe("Text or regex to search for."),
+      regex: z.boolean().optional().describe("Treat query as a regular expression. Default: false."),
+      path: z.string().optional().describe("Directory or file relative to workspace root. Default: ."),
+      glob: z.string().optional().describe("Optional glob, for example **/*.py."),
+      include_hidden: z.boolean().optional().describe("Include hidden files that are not blocked. Default: false."),
+      max_results: z.number().int().min(1).max(2000).optional().describe("Maximum results. Default from config.")
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+    _meta: {
+      ...toolCardMeta(),
+      "openai/toolInvocation/invoking": "Searching files...",
+      "openai/toolInvocation/invoked": "File search complete"
+    }
+  }, async args => {
+    const workspace = workspaces.getWorkspace(args.workspace_id);
+    const result = await searchWorkspace(config, guard, workspace, {
+      query: args.query,
+      regex: parseBool(args.regex, false),
+      root: args.path ?? ".",
+      glob: args.glob,
+      includeHidden: parseBool(args.include_hidden, false),
+      maxResults: limitInt(args.max_results, config.maxSearchResults, 1, config.maxSearchResults)
+    });
+    return textResult(result.text, {
+      workspace_id: workspace.id,
+      root: workspace.root,
+      matches: result.matches,
+      truncated: result.truncated,
+      used: result.used
+    });
+  });
+
   registerCodexTool(
     config,
     server,
@@ -2015,6 +2200,47 @@ export function createLocalWorkspaceBridgeServer(config: LocalWorkspaceBridgeCon
       return textResult(result.text, structured);
     }
   );
+
+  registerCodexTool(config, server, "lsp", {
+    title: "Language Server",
+    description: "Navigate Python and TypeScript/JavaScript through persistent language servers. Supports definitions, references, implementations, hover, document/workspace symbols, call hierarchy, and diagnostics.",
+    inputSchema: {
+      workspace_id: z.string().optional().describe("Workspace id from open_workspace. Omit to use default workspace."),
+      operation: z.enum(["goToDefinition", "findReferences", "goToImplementation", "hover", "documentSymbol", "workspaceSymbol", "prepareCallHierarchy", "incomingCalls", "outgoingCalls", "diagnostics"]),
+      path: z.string().describe("Python or TypeScript/JavaScript file relative to workspace root."),
+      line: z.number().int().min(1).optional().describe("1-based line number. Required for position-based operations."),
+      character: z.number().int().min(1).optional().describe("1-based UTF-16 character position. Required for position-based operations."),
+      query: z.string().optional().describe("Workspace-symbol search query. Only used by workspaceSymbol."),
+      max_results: z.number().int().min(1).max(200).optional().describe("Maximum navigation locations. Default: 50.")
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+    _meta: {
+      ...toolCardMeta(),
+      "openai/toolInvocation/invoking": "Querying language server...",
+      "openai/toolInvocation/invoked": "Language server query complete"
+    }
+  }, async args => {
+    const workspace = workspaces.getWorkspace(args.workspace_id);
+    const result = await queryLsp(config, guard, workspace, {
+      operation: args.operation,
+      path: args.path,
+      line: args.line,
+      character: args.character,
+      query: args.query,
+      maxResults: args.max_results
+    });
+    const text =
+      result.operation === "hover"
+        ? result.hover ?? "No hover information."
+        : result.operation === "diagnostics"
+          ? (result.diagnostics ?? []).map((item) => `${result.path}:${item.line}:${item.character} [${item.source ?? "LSP"}] ${item.message}`).join("\n") || "No diagnostics."
+          : result.symbols
+            ? result.symbols.map((item) => `${item.location ? `${item.location.path}:${item.location.line}:${item.location.character} ` : ""}${item.name}${item.detail ? ` — ${item.detail}` : ""}`).join("\n") || "No symbols."
+            : result.calls
+              ? result.calls.map((item) => `${item.location ? `${item.location.path}:${item.location.line}:${item.location.character} ` : ""}${item.name}${item.detail ? ` — ${item.detail}` : ""}`).join("\n") || "No call hierarchy results."
+              : (result.locations ?? []).map(location => `${location.path}:${location.line}:${location.character}`).join("\n") || "No locations.";
+    return textResult(text, { workspace_id: workspace.id, root: workspace.root, ...result });
+  });
 
   registerCodexTool(config, server, "read_many", {
     title: "Read Multiple Files",
@@ -2451,6 +2677,7 @@ export function createLocalWorkspaceBridgeServer(config: LocalWorkspaceBridgeCon
         expectedSha256: args.expected_sha256
       });
       if (result.diff.changed) invalidateWorkspaceAnalysis(workspace.id);
+      try { await syncLspFile(config, guard, workspace, result.path, String(args.content ?? "")); } catch {}
       const text = `# Write File\n\nPath: ${result.path}\nExisted before: ${result.existed}\nBytes: ${result.bytes}\nSHA-256: ${result.sha256}\nDiff stats: +${result.diff.additions} -${result.diff.deletions}${diffBlock(result.diff.diff)}`;
       return textResult(text, {
         workspace_id: workspace.id,
@@ -2499,6 +2726,7 @@ export function createLocalWorkspaceBridgeServer(config: LocalWorkspaceBridgeCon
         expectedSha256: args.expected_sha256
       });
       if (result.diff.changed) invalidateWorkspaceAnalysis(workspace.id);
+      try { await syncLspFile(config, guard, workspace, result.path); } catch {}
       const text = `# Edit File\n\nPath: ${result.path}\nReplacements: ${result.replacements}\nBytes: ${result.bytes}\nSHA-256: ${result.sha256}\nDiff stats: +${result.diff.additions} -${result.diff.deletions}${diffBlock(result.diff.diff)}`;
       return textResult(text, {
         workspace_id: workspace.id,
@@ -2537,6 +2765,9 @@ export function createLocalWorkspaceBridgeServer(config: LocalWorkspaceBridgeCon
       const workspace = workspaces.getWorkspace(args.workspace_id);
       const result = applyWorkspacePatch(config, guard, workspace, String(args.patch ?? ""));
       if (result.changed) invalidateWorkspaceAnalysis(workspace.id);
+      for (const changedPath of result.paths) {
+        try { await syncLspFile(config, guard, workspace, changedPath); } catch {}
+      }
       const text = [
         "# Apply Patch",
         "",
@@ -2608,26 +2839,38 @@ export function createLocalWorkspaceBridgeServer(config: LocalWorkspaceBridgeCon
       cwd: z.string().optional().describe("Workspace-relative working directory."),
       wait_ms: z.number().int().min(0).max(10000).optional().describe("Initial wait, default 1000 ms. Does not limit process lifetime."),
       timeout_ms: z.number().int().min(1000).max(43200000).optional().describe("Process lifetime, default 1 hour, maximum 12 hours. Timeout terminates the process tree.")
-    }, annotations: BASH_ANNOTATIONS
+    }, annotations: BASH_ANNOTATIONS,
+    _meta: {
+      ...toolCardMeta(),
+      "openai/toolInvocation/invoking": "Starting process...",
+      "openai/toolInvocation/invoked": "Process started"
+    }
   }, async args => {
-    const result = await execManager.start(workspaces.getWorkspace(args.workspace_id), args.command, {
+    const workspace = workspaces.getWorkspace(args.workspace_id);
+    const result = await execManager.start(workspace, args.command, {
       requestId: args.request_id, cwd: args.cwd, sessionId: args.session_id, waitMs: args.wait_ms, timeoutMs: args.timeout_ms
     });
-    return textResult(JSON.stringify(result), result);
+    return textResult(JSON.stringify(result), { root: workspace.root, ...result });
   });
   registerCodexTool(config, server, "exec_poll", {
     title: "Read Process Output",
-    description: "Read process status and a bounded page of redacted stdout/stderr. Pass next_cursor from the previous response for incremental output; cursor=0 replays retained logs. Polling never restarts or stops a process. output_lost means old logs were evicted. Partial lines appear at newline or exit.",
+    description: "Read process status and a bounded page of redacted stdout/stderr. Pass next_cursor from the previous response for incremental output; cursor=0 replays retained logs. When workspace writes are enabled, a redacted spill log is retained at spill_path up to 20 MiB. Polling never restarts or stops a process. output_lost means old inline logs were evicted.",
     inputSchema: { ...execId,
       cursor: z.number().int().min(0).optional(),
       wait_ms: z.number().int().min(0).max(10000).optional().describe("Wait up to this long when caught up, default 0."),
       max_chars: z.number().int().min(4000).max(24000).optional().describe("Output text budget, default 12000.")
-    }, annotations: READ_ONLY_ANNOTATIONS
+    }, annotations: READ_ONLY_ANNOTATIONS,
+    _meta: {
+      ...toolCardMeta(),
+      "openai/toolInvocation/invoking": "Reading process output...",
+      "openai/toolInvocation/invoked": "Process output updated"
+    }
   }, async args => {
-    const result = await execManager.poll(workspaces.getWorkspace(args.workspace_id), args.process_id, {
+    const workspace = workspaces.getWorkspace(args.workspace_id);
+    const result = await execManager.poll(workspace, args.process_id, {
       sessionId: args.session_id, cursor: args.cursor, waitMs: args.wait_ms, maxChars: args.max_chars
     });
-    return textResult(JSON.stringify(result), result);
+    return textResult(JSON.stringify(result), { root: workspace.root, ...result });
   });
   registerCodexTool(config, server, "exec_input", {
     title: "Write Process Input",
@@ -2649,9 +2892,206 @@ export function createLocalWorkspaceBridgeServer(config: LocalWorkspaceBridgeCon
   registerCodexTool(config, server, "exec_list", {
     title: "List Processes",
     description: "Recover process IDs and inspect running/completed commands in this workspace. Processes survive HTTP reconnects within the same service, but not a service restart. Completed history is retained for up to one hour.",
-    inputSchema: execScope, annotations: READ_ONLY_ANNOTATIONS
+    inputSchema: execScope,
+    annotations: READ_ONLY_ANNOTATIONS,
+    _meta: {
+      ...toolCardMeta(),
+      "openai/toolInvocation/invoking": "Listing processes...",
+      "openai/toolInvocation/invoked": "Processes listed"
+    }
   }, args => {
-    const result = { processes: execManager.list(workspaces.getWorkspace(args.workspace_id), args.session_id) };
+    const workspace = workspaces.getWorkspace(args.workspace_id);
+    const result = { workspace_id: workspace.id, root: workspace.root, processes: execManager.list(workspace, args.session_id) };
+    return textResult(JSON.stringify(result), result);
+  });
+
+  const taskScope = {
+    workspace_id: z.string().optional().describe("Workspace ID. Omit for the current workspace."),
+    session_id: z.string().optional().describe("Bash permission label from open_current_workspace, required when session guard is enabled.")
+  };
+  const taskId = {
+    ...taskScope,
+    task_id: z.string().describe("Exact task_id returned by task_list or task_output, such as process:<id> or terminal:<id>.")
+  };
+  registerCodexTool(config, server, "task_list", {
+    title: "List Tasks",
+    description: "List process and persistent-terminal tasks through one unified view. Prefer this when you only need to recover IDs or see what background work is still running.",
+    inputSchema: taskScope,
+    annotations: READ_ONLY_ANNOTATIONS,
+    _meta: {
+      ...toolCardMeta(),
+      "openai/toolInvocation/invoking": "Listing background tasks...",
+      "openai/toolInvocation/invoked": "Background tasks listed"
+    }
+  }, args => {
+    const workspace = workspaces.getWorkspace(args.workspace_id);
+    const tasks = listTasks(config, workspace, args.session_id);
+    return textResult(JSON.stringify({ tasks }), { workspace_id: workspace.id, root: workspace.root, tasks });
+  });
+  registerCodexTool(config, server, "task_output", {
+    title: "Read Task Output",
+    description: "Read output from either a process or persistent terminal using one task_id. Cursor semantics are reported as cursor_kind in the result.",
+    inputSchema: {
+      ...taskId,
+      cursor: z.number().int().min(0).optional(),
+      wait_ms: z.number().int().min(0).max(10000).optional().describe("Wait briefly for new output when caught up."),
+      max_chars: z.number().int().min(4000).max(24000).optional().describe("Maximum inline output text.")
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+    _meta: {
+      ...toolCardMeta(),
+      "openai/toolInvocation/invoking": "Reading task output...",
+      "openai/toolInvocation/invoked": "Task output updated"
+    }
+  }, async args => {
+    const workspace = workspaces.getWorkspace(args.workspace_id);
+    const result = await readTaskOutput(config, workspace, args.task_id, {
+      sessionId: args.session_id,
+      cursor: args.cursor,
+      waitMs: args.wait_ms,
+      maxChars: args.max_chars
+    });
+    return textResult(JSON.stringify(result), { root: workspace.root, ...result });
+  });
+  registerCodexTool(config, server, "task_stop", {
+    title: "Stop Task",
+    description: "Stop a process task or close a persistent terminal task by unified task_id.",
+    inputSchema: taskId,
+    annotations: { ...BASH_ANNOTATIONS, idempotentHint: true },
+    _meta: {
+      ...toolCardMeta(),
+      "openai/toolInvocation/invoking": "Stopping task...",
+      "openai/toolInvocation/invoked": "Task stopped"
+    }
+  }, async args => {
+    const workspace = workspaces.getWorkspace(args.workspace_id);
+    const result = await stopTask(config, workspace, args.task_id, args.session_id);
+    return textResult(JSON.stringify(result), { workspace_id: workspace.id, root: workspace.root, ...result });
+  });
+
+  const terminalManager = getTerminalManager(config);
+  const terminalScope = {
+    workspace_id: z.string().optional().describe("Workspace ID. Omit for the current workspace."),
+    session_id: z.string().optional().describe("Bash permission label from open_current_workspace, required when session guard is enabled.")
+  };
+  const terminalId = {
+    ...terminalScope,
+    terminal_id: z.string().describe("Exact terminal_id returned by terminal_open or terminal_list.")
+  };
+
+  registerCodexTool(config, server, "terminal_open", {
+    title: "Open Terminal",
+    description: "Open a persistent PTY shell for interactive or stateful work. Available in standard/full tool mode with full bash permission. Shell state, cwd, and running programs persist across terminal tool calls until close or service restart.",
+    inputSchema: {
+      ...terminalScope,
+      cwd: z.string().optional().describe("Workspace-relative starting directory. Default: ."),
+      cols: z.number().int().min(40).max(300).optional().describe("Terminal columns. Default: 120."),
+      rows: z.number().int().min(10).max(120).optional().describe("Terminal rows. Default: 40.")
+    },
+    annotations: BASH_ANNOTATIONS,
+    _meta: {
+      ...toolCardMeta(),
+      "openai/toolInvocation/invoking": "Opening terminal...",
+      "openai/toolInvocation/invoked": "Terminal opened"
+    }
+  }, args => {
+    const workspace = workspaces.getWorkspace(args.workspace_id);
+    const result = terminalManager.open(workspace, {
+      cwd: args.cwd,
+      sessionId: args.session_id,
+      cols: args.cols,
+      rows: args.rows
+    });
+    return textResult(JSON.stringify(result), { root: workspace.root, ...result });
+  });
+
+  registerCodexTool(config, server, "terminal_read", {
+    title: "Read Terminal",
+    description: "Read a bounded page from a persistent PTY terminal. Use next_cursor for incremental output. output_lost means older retained output was evicted.",
+    inputSchema: {
+      ...terminalId,
+      cursor: z.number().int().min(0).optional().describe("Character cursor from a prior terminal_read. Omit to read from the oldest retained output."),
+      max_chars: z.number().int().min(1000).max(24000).optional().describe("Maximum output characters. Default: 12000.")
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+    _meta: {
+      ...toolCardMeta(),
+      "openai/toolInvocation/invoking": "Reading terminal...",
+      "openai/toolInvocation/invoked": "Terminal output updated"
+    }
+  }, args => {
+    const workspace = workspaces.getWorkspace(args.workspace_id);
+    const result = terminalManager.read(workspace, args.terminal_id, {
+      sessionId: args.session_id,
+      cursor: args.cursor,
+      maxChars: args.max_chars
+    });
+    return textResult(result.output || JSON.stringify(result), { root: workspace.root, ...result });
+  });
+
+  registerCodexTool(config, server, "terminal_send", {
+    title: "Send Terminal Input",
+    description: "Write exact text or keystrokes to a persistent PTY terminal. Include \r or \n when the interactive program expects Enter. Do not blindly retry mutating input.",
+    inputSchema: {
+      ...terminalId,
+      text: z.string().max(16000).describe("Exact text to send to the PTY.")
+    },
+    annotations: BASH_ANNOTATIONS
+  }, args => {
+    const result = terminalManager.send(workspaces.getWorkspace(args.workspace_id), args.terminal_id, args.text, args.session_id);
+    return textResult(JSON.stringify(result), result);
+  });
+
+  registerCodexTool(config, server, "terminal_signal", {
+    title: "Signal Terminal",
+    description: "Send an interactive control signal to a persistent terminal: interrupt is Ctrl+C; eof is Ctrl+D on POSIX or Ctrl+Z on Windows.",
+    inputSchema: {
+      ...terminalId,
+      signal: z.enum(["interrupt", "eof"])
+    },
+    annotations: BASH_ANNOTATIONS
+  }, args => {
+    const result = terminalManager.signal(workspaces.getWorkspace(args.workspace_id), args.terminal_id, args.signal, args.session_id);
+    return textResult(JSON.stringify(result), result);
+  });
+
+  registerCodexTool(config, server, "terminal_resize", {
+    title: "Resize Terminal",
+    description: "Resize a persistent PTY terminal.",
+    inputSchema: {
+      ...terminalId,
+      cols: z.number().int().min(40).max(300),
+      rows: z.number().int().min(10).max(120)
+    },
+    annotations: BASH_ANNOTATIONS
+  }, args => {
+    const result = terminalManager.resize(workspaces.getWorkspace(args.workspace_id), args.terminal_id, args.cols, args.rows, args.session_id);
+    return textResult(JSON.stringify(result), result);
+  });
+
+  registerCodexTool(config, server, "terminal_list", {
+    title: "List Terminals",
+    description: "List persistent PTY terminals in the current workspace and recover terminal IDs after reconnecting.",
+    inputSchema: terminalScope,
+    annotations: READ_ONLY_ANNOTATIONS,
+    _meta: {
+      ...toolCardMeta(),
+      "openai/toolInvocation/invoking": "Listing terminals...",
+      "openai/toolInvocation/invoked": "Terminals listed"
+    }
+  }, args => {
+    const workspace = workspaces.getWorkspace(args.workspace_id);
+    const result = { workspace_id: workspace.id, root: workspace.root, terminals: terminalManager.list(workspace, args.session_id) };
+    return textResult(JSON.stringify(result), result);
+  });
+
+  registerCodexTool(config, server, "terminal_close", {
+    title: "Close Terminal",
+    description: "Close a persistent PTY terminal and terminate the shell it owns.",
+    inputSchema: terminalId,
+    annotations: BASH_ANNOTATIONS
+  }, args => {
+    const result = terminalManager.close(workspaces.getWorkspace(args.workspace_id), args.terminal_id, args.session_id);
     return textResult(JSON.stringify(result), result);
   });
 
@@ -2879,6 +3319,377 @@ export function createLocalWorkspaceBridgeServer(config: LocalWorkspaceBridgeCon
       });
     }
   );
+
+  if (config.harnessProfile === "claude") {
+    registerCodexTool(config, server, "Read", {
+      title: "Read",
+      description: "Read a file from the local filesystem. Accepts absolute or workspace-relative paths. Text uses numbered lines; images are returned visually; PDFs support a pages selection; Jupyter notebooks are returned as cells with outputs.",
+      inputSchema: {
+        workspace_id: z.string().optional(),
+        file_path: z.string().min(1),
+        offset: z.number().int().min(1).optional().describe("1-based starting line for text-like files."),
+        limit: z.number().int().min(1).max(2000).optional().describe("Maximum lines for text-like files. Default: 2000."),
+        pages: z.string().optional().describe("PDF page selection such as 1-5 or 1,3,5-7. Maximum 20 pages.")
+      },
+      annotations: READ_ONLY_ANNOTATIONS
+    }, async (args) => {
+      const workspace = workspaces.getWorkspace(args.workspace_id);
+      const filePath = String(args.file_path);
+      return withClaudeHooks(workspace, "Read", args, async () => {
+        const ext = path.extname(filePath).toLowerCase();
+        if ([".png", ".jpg", ".jpeg", ".webp"].includes(ext)) {
+          return (await readImageFile(guard, workspace, filePath, { maxDimension: DEFAULT_IMAGE_PREVIEW_DIMENSION })).result;
+        }
+        if (ext === ".ipynb") {
+          const result = await readNotebook(config, guard, workspace, filePath);
+          return textResult(result.text, {
+            workspace_id: workspace.id, root: workspace.root, path: result.path,
+            cell_count: result.cellCount, cells: result.cells, sha256: result.sha256
+          });
+        }
+        if (ext === ".pdf") {
+          const raw = String(args.pages ?? "").trim();
+          const selected = new Set<number>();
+          if (raw) {
+            for (const part of raw.split(",")) {
+              const token = part.trim();
+              const match = /^(\d+)(?:-(\d+))?$/.exec(token);
+              if (!match) throw new LocalWorkspaceBridgeError("pages must look like 1-5 or 1,3,5-7.");
+              const start = Number(match[1]);
+              const end = Number(match[2] ?? match[1]);
+              if (start < 1 || end < start) throw new LocalWorkspaceBridgeError("Invalid PDF page range.");
+              for (let page = start; page <= end; page += 1) selected.add(page);
+            }
+            if (selected.size > 20) throw new LocalWorkspaceBridgeError("Read supports at most 20 PDF pages per call.");
+          } else {
+            const probe = await readPdfText(guard, workspace, filePath, { startPage: 1, endPage: 1, maxBytes: 1000 });
+            if (probe.pageCount > 10) {
+              throw new LocalWorkspaceBridgeError(`PDF has ${probe.pageCount} pages. Provide pages (maximum 20 pages per call).`);
+            }
+            for (let page = 1; page <= probe.pageCount; page += 1) selected.add(page);
+          }
+          const pages = [...selected].sort((a, b) => a - b);
+          const chunks: string[] = [];
+          let pageCount = 0;
+          for (const page of pages) {
+            const result = await readPdfText(guard, workspace, filePath, { startPage: page, endPage: page, maxBytes: Math.max(1000, Math.floor(MAX_DOCUMENT_TEXT_BYTES / Math.max(1, pages.length))) });
+            pageCount = result.pageCount;
+            chunks.push(result.text);
+          }
+          return textResult(chunks.join("\n\n"), { workspace_id: workspace.id, root: workspace.root, path: filePath, page_count: pageCount, pages });
+        }
+        const start = limitInt(args.offset, 1, 1, Number.MAX_SAFE_INTEGER);
+        const limit = limitInt(args.limit, 2000, 1, 2000);
+        if (ext === ".docx") {
+          const result = await readDocxText(guard, workspace, filePath, { startLine: start, endLine: start + limit - 1, maxBytes: MAX_DOCUMENT_TEXT_BYTES });
+          return textResult(result.text, { workspace_id: workspace.id, root: workspace.root, ...result });
+        }
+        const result = await readTextFile(config, guard, workspace, filePath, {
+          startLine: start,
+          endLine: start + limit - 1,
+          maxBytes: READ_RESPONSE_MAX_BYTES
+        });
+        return textResult(result.text, { workspace_id: workspace.id, root: workspace.root, ...result });
+      });
+    });
+
+    registerCodexTool(config, server, "Write", {
+      title: "Write",
+      description: "Write a file to the local filesystem. Creates parent directories when needed and returns a diff.",
+      inputSchema: {
+        workspace_id: z.string().optional(),
+        file_path: z.string().min(1),
+        content: z.string(),
+        expected_sha256: z.string().regex(/^[a-f0-9]{64}$/).optional()
+      },
+      annotations: LOCAL_WRITE_ANNOTATIONS
+    }, async (args) => {
+      const workspace = workspaces.getWorkspace(args.workspace_id);
+      const input = args as Record<string, unknown>;
+      const result = await withClaudeHooks(workspace, "Write", input, () => writeTextFile(
+        config, guard, workspace, String(args.file_path), String(args.content ?? ""),
+        { createDirs: true, overwrite: true, expectedSha256: args.expected_sha256 }
+      ));
+      invalidateWorkspaceAnalysis(workspace.id);
+      await syncLspFile(config, guard, workspace, result.path, String(args.content ?? "")).catch(() => {});
+      await notifyFileChanged(workspace, "Write", input, result.path);
+      return textResult(result.diff.diff || `Wrote ${result.path}`, { workspace_id: workspace.id, root: workspace.root, ...result });
+    });
+
+    registerCodexTool(config, server, "Edit", {
+      title: "Edit",
+      description: "Perform an exact string replacement in a file. old_string must be unique unless replace_all=true.",
+      inputSchema: {
+        workspace_id: z.string().optional(),
+        file_path: z.string().min(1),
+        old_string: z.string().min(1),
+        new_string: z.string(),
+        replace_all: z.boolean().optional(),
+        expected_sha256: z.string().regex(/^[a-f0-9]{64}$/).optional()
+      },
+      annotations: LOCAL_WRITE_ANNOTATIONS
+    }, async (args) => {
+      const workspace = workspaces.getWorkspace(args.workspace_id);
+      const input = args as Record<string, unknown>;
+      const result = await withClaudeHooks(workspace, "Edit", input, () => editTextFile(
+        config, guard, workspace, String(args.file_path), String(args.old_string), String(args.new_string ?? ""),
+        { replaceAll: parseBool(args.replace_all, false), expectedSha256: args.expected_sha256 }
+      ));
+      invalidateWorkspaceAnalysis(workspace.id);
+      await syncLspFile(config, guard, workspace, result.path).catch(() => {});
+      await notifyFileChanged(workspace, "Edit", input, result.path);
+      return textResult(result.diff.diff || `Edited ${result.path}`, { workspace_id: workspace.id, root: workspace.root, ...result });
+    });
+
+    registerCodexTool(config, server, "Glob", {
+      title: "Glob",
+      description: "Fast file pattern matching. Supports patterns like **/*.js or src/**/*.ts and returns paths sorted by modification time.",
+      inputSchema: {
+        workspace_id: z.string().optional(),
+        pattern: z.string().min(1),
+        path: z.string().optional()
+      },
+      annotations: READ_ONLY_ANNOTATIONS
+    }, async (args) => {
+      const workspace = workspaces.getWorkspace(args.workspace_id);
+      return withClaudeHooks(workspace, "Glob", args, async () => {
+        const result = await globWorkspace(config, guard, workspace, {
+          pattern: String(args.pattern), root: args.path ?? ".", includeHidden: false, maxResults: config.maxSearchResults
+        });
+        return textResult(result.text, { workspace_id: workspace.id, root: workspace.root, ...result });
+      });
+    });
+
+    registerCodexTool(config, server, "Grep", {
+      title: "Grep",
+      description: "Content search built on bundled ripgrep. Supports regex, glob/type filters, content/files/count output modes, and multiline matching.",
+      inputSchema: {
+        workspace_id: z.string().optional(),
+        pattern: z.string().min(1),
+        path: z.string().optional(),
+        glob: z.string().optional(),
+        type: z.string().optional(),
+        output_mode: z.enum(["content", "files_with_matches", "count"]).optional(),
+        head_limit: z.number().int().min(1).max(2000).optional(),
+        offset: z.number().int().min(0).optional(),
+        multiline: z.boolean().optional()
+      },
+      annotations: READ_ONLY_ANNOTATIONS
+    }, async (args) => {
+      const workspace = workspaces.getWorkspace(args.workspace_id);
+      return withClaudeHooks(workspace, "Grep", args, async () => {
+        const typeMap: Record<string, string> = {
+          js: "**/*.{js,jsx,mjs,cjs,ts,tsx}", ts: "**/*.{ts,tsx}", py: "**/*.py",
+          rust: "**/*.rs", go: "**/*.go", java: "**/*.java", cpp: "**/*.{cc,cpp,cxx,h,hpp}",
+          c: "**/*.{c,h}", json: "**/*.json", yaml: "**/*.{yaml,yml}", md: "**/*.md"
+        };
+        const maxResults = limitInt(args.head_limit, config.maxSearchResults, 1, 2000);
+        const result = await searchWorkspace(config, guard, workspace, {
+          query: String(args.pattern),
+          regex: true,
+          root: args.path ?? ".",
+          glob: args.glob ?? (args.type ? typeMap[String(args.type).toLowerCase()] : undefined),
+          includeHidden: false,
+          maxResults: Math.min(config.maxSearchResults, maxResults + limitInt(args.offset, 0, 0, 2000)),
+          multiline: parseBool(args.multiline, false)
+        });
+        const offset = limitInt(args.offset, 0, 0, 2000);
+        const matches = result.matches.slice(offset, offset + maxResults);
+        const mode = args.output_mode ?? "files_with_matches";
+        if (mode === "files_with_matches") {
+          const paths = [...new Set(matches.map((match) => match.path))];
+          return textResult(paths.join("\n") || "No matches.", { workspace_id: workspace.id, root: workspace.root, paths, truncated: result.truncated, used: result.used });
+        }
+        if (mode === "count") {
+          const counts = new Map<string, number>();
+          for (const match of matches) counts.set(match.path, (counts.get(match.path) ?? 0) + 1);
+          const text = [...counts.entries()].map(([file, count]) => `${file}:${count}`).join("\n") || "No matches.";
+          return textResult(text, { workspace_id: workspace.id, root: workspace.root, counts: Object.fromEntries(counts), truncated: result.truncated, used: result.used });
+        }
+        const text = matches.map((match) => `${match.path}:${match.line}: ${match.text}`).join("\n") || "No matches.";
+        return textResult(text, { workspace_id: workspace.id, root: workspace.root, matches, truncated: result.truncated, used: result.used });
+      });
+    });
+
+    registerCodexTool(config, server, "LSP", {
+      title: "LSP",
+      description: "Navigate code through persistent language servers: definitions, references, implementations, hover, symbols, call hierarchy, and diagnostics.",
+      inputSchema: {
+        workspace_id: z.string().optional(),
+        operation: z.enum(["goToDefinition", "findReferences", "goToImplementation", "hover", "documentSymbol", "workspaceSymbol", "prepareCallHierarchy", "incomingCalls", "outgoingCalls", "diagnostics"]),
+        file_path: z.string().min(1),
+        line: z.number().int().min(1).optional(),
+        character: z.number().int().min(1).optional(),
+        query: z.string().optional(),
+        max_results: z.number().int().min(1).max(200).optional()
+      },
+      annotations: READ_ONLY_ANNOTATIONS
+    }, async (args) => {
+      const workspace = workspaces.getWorkspace(args.workspace_id);
+      return withClaudeHooks(workspace, "LSP", args, async () => {
+        const result = await queryLsp(config, guard, workspace, {
+          operation: args.operation, path: String(args.file_path), line: args.line, character: args.character,
+          query: args.query, maxResults: args.max_results
+        });
+        return textResult(JSON.stringify(result, null, 2), { workspace_id: workspace.id, root: workspace.root, ...result });
+      });
+    });
+
+    registerCodexTool(config, server, "NotebookEdit", {
+      title: "NotebookEdit",
+      description: "Replace, insert, or delete a Jupyter notebook cell.",
+      inputSchema: {
+        workspace_id: z.string().optional(),
+        notebook_path: z.string().min(1),
+        new_source: z.string().optional(),
+        cell_id: z.string().optional(),
+        cell_index: z.number().int().min(0).optional(),
+        cell_type: z.enum(["code", "markdown"]).optional(),
+        edit_mode: z.enum(["replace", "insert", "delete"]).optional(),
+        expected_sha256: z.string().regex(/^[a-f0-9]{64}$/).optional()
+      },
+      annotations: LOCAL_WRITE_ANNOTATIONS
+    }, async (args) => {
+      const workspace = workspaces.getWorkspace(args.workspace_id);
+      const input = args as Record<string, unknown>;
+      const result = await withClaudeHooks(workspace, "NotebookEdit", input, () => editNotebook(config, guard, workspace, String(args.notebook_path), {
+        newSource: args.new_source, cellId: args.cell_id, cellIndex: args.cell_index,
+        cellType: args.cell_type, editMode: args.edit_mode, expectedSha256: args.expected_sha256
+      }));
+      invalidateWorkspaceAnalysis(workspace.id);
+      await notifyFileChanged(workspace, "NotebookEdit", input, result.path);
+      return textResult(result.diff.diff || `Edited notebook ${result.path}`, { workspace_id: workspace.id, root: workspace.root, ...result });
+    });
+
+    registerCodexTool(config, server, "Bash", {
+      title: "Bash",
+      description: "Execute a shell command in the workspace. Set run_in_background=true for long-running commands and use TaskOutput/TaskStop with the returned task_id.",
+      inputSchema: {
+        workspace_id: z.string().optional(),
+        command: z.string().min(1).max(32000),
+        timeout: z.number().int().min(1000).max(43200000).optional(),
+        description: z.string().optional(),
+        run_in_background: z.boolean().optional()
+      },
+      annotations: BASH_ANNOTATIONS
+    }, async (args) => {
+      const workspace = workspaces.getWorkspace(args.workspace_id);
+      return withClaudeHooks(workspace, "Bash", args, async () => {
+        if (parseBool(args.run_in_background, false)) {
+          const requestId = `claude-bash-${Date.now()}-${createHash("sha256").update(String(args.command)).digest("hex").slice(0, 10)}`;
+          const result = await getExecManager(config).start(workspace, String(args.command), {
+            requestId, waitMs: 0, timeoutMs: args.timeout
+          });
+          const taskId = `process:${result.process_id}`;
+          return textResult(`Command running in background. Task ID: ${taskId}`, { ...result, task_id: taskId, description: args.description });
+        }
+        const result = await runBash(config, guard, workspace, String(args.command), {
+          timeoutMs: Math.min(args.timeout ?? 30_000, 180_000)
+        });
+        return textResult([result.stdout, result.stderr].filter(Boolean).join("\n") || `Process exited with code ${result.exitCode}`, { workspace_id: workspace.id, root: workspace.root, ...result });
+      });
+    });
+
+    registerCodexTool(config, server, "TaskOutput", {
+      title: "TaskOutput",
+      description: "Read output from a background Bash task returned by this harness.",
+      inputSchema: {
+        workspace_id: z.string().optional(),
+        task_id: z.string().min(1),
+        block: z.boolean().optional(),
+        timeout: z.number().int().min(0).max(10000).optional(),
+        cursor: z.number().int().min(0).optional()
+      },
+      annotations: READ_ONLY_ANNOTATIONS
+    }, async (args) => {
+      const workspace = workspaces.getWorkspace(args.workspace_id);
+      return withClaudeHooks(workspace, "TaskOutput", args, async () => {
+        const result = await readTaskOutput(config, workspace, String(args.task_id), {
+          cursor: args.cursor, waitMs: parseBool(args.block, false) ? (args.timeout ?? 10_000) : 0, maxChars: 24_000
+        });
+        return textResult(JSON.stringify(result, null, 2), result);
+      });
+    });
+
+    registerCodexTool(config, server, "TaskStop", {
+      title: "TaskStop",
+      description: "Stop a running background Bash task.",
+      inputSchema: { workspace_id: z.string().optional(), task_id: z.string().min(1) },
+      annotations: LOCAL_WRITE_ANNOTATIONS
+    }, async (args) => {
+      const workspace = workspaces.getWorkspace(args.workspace_id);
+      return withClaudeHooks(workspace, "TaskStop", args, async () => {
+        const result = await stopTask(config, workspace, String(args.task_id));
+        return textResult(`Stopped ${args.task_id}`, result);
+      });
+    });
+
+    registerCodexTool(config, server, "Skill", {
+      title: "Skill",
+      description: "Load a bounded SKILL.md by discovered skill name.",
+      inputSchema: {
+        workspace_id: z.string().optional(),
+        skill: z.string().min(1),
+        source: z.enum(["workspace", "user", "plugin", "other"]).optional()
+      },
+      annotations: READ_ONLY_ANNOTATIONS
+    }, async (args) => {
+      const workspace = workspaces.getWorkspace(args.workspace_id);
+      return withClaudeHooks(workspace, "Skill", args, async () => {
+        const loaded = await loadSkill(workspace, { name: String(args.skill), source: args.source, includeGlobal: true, maxSkills: 500, maxBytes: 40_000 });
+        return textResult(loaded.text, { workspace_id: workspace.id, root: workspace.root, skill: loaded.skill, bytes: loaded.bytes, total_bytes: loaded.totalBytes, truncated: loaded.truncated });
+      });
+    });
+
+    registerCodexTool(config, server, "WorktreeList", {
+      title: "WorktreeList",
+      description: "List git worktrees for the current repository. MCP adaptation of Claude Code worktree isolation.",
+      inputSchema: { workspace_id: z.string().optional() },
+      annotations: READ_ONLY_ANNOTATIONS
+    }, async (args) => {
+      const workspace = workspaces.getWorkspace(args.workspace_id);
+      const items = listWorktrees(config, workspace);
+      return textResult(items.map((item) => `${item.path}${item.branch ? ` [${item.branch}]` : ""}`).join("\n"), { workspace_id: workspace.id, root: workspace.root, worktrees: items });
+    });
+
+    registerCodexTool(config, server, "WorktreeCreate", {
+      title: "WorktreeCreate",
+      description: "Create an isolated git worktree and return a workspace_id for explicit MCP use instead of mutating the ChatGPT session cwd.",
+      inputSchema: {
+        workspace_id: z.string().optional(),
+        name: z.string().min(1),
+        path: z.string().optional(),
+        branch: z.string().optional(),
+        start_point: z.string().optional(),
+        detach: z.boolean().optional()
+      },
+      annotations: LOCAL_WRITE_ANNOTATIONS
+    }, async (args) => {
+      const workspace = workspaces.getWorkspace(args.workspace_id);
+      await runLocalHooks(config, workspace, "WorktreeCreate", "WorktreeCreate", args);
+      const item = createWorktree(config, workspace, {
+        name: String(args.name), path: args.path, branch: args.branch, startPoint: args.start_point, detach: parseBool(args.detach, false)
+      });
+      const opened = workspaces.openWorkspace(item.path, { activate: false });
+      return textResult(`Created worktree: ${item.path}\nWorkspace ID: ${opened.id}`, { source_workspace_id: workspace.id, workspace_id: opened.id, root: opened.root, worktree: item });
+    });
+
+    registerCodexTool(config, server, "WorktreeRemove", {
+      title: "WorktreeRemove",
+      description: "Remove a git worktree. This does not pretend to own or switch the ChatGPT conversation cwd.",
+      inputSchema: {
+        workspace_id: z.string().optional(),
+        path: z.string().min(1),
+        force: z.boolean().optional()
+      },
+      annotations: LOCAL_WRITE_ANNOTATIONS
+    }, async (args) => {
+      const workspace = workspaces.getWorkspace(args.workspace_id);
+      await runLocalHooks(config, workspace, "WorktreeRemove", "WorktreeRemove", args);
+      const item = removeWorktree(config, workspace, String(args.path), parseBool(args.force, false));
+      return textResult(`Removed worktree: ${item.path}`, { workspace_id: workspace.id, root: workspace.root, worktree: item });
+    });
+  }
 
   if (config.codexSessions !== "off") {
     registerCodexTool(

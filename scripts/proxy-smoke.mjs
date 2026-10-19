@@ -16,7 +16,7 @@ try {
   process.env.HTTPS_PROXY = 'http://127.0.0.1:17897';
   process.env.NO_PROXY = 'localhost,127.0.0.1,::1';
   process.env.NODE_USE_ENV_PROXY = '1';
-  process.env.LOCALWORKSPACEBRIDGE_PROXY_TEST_SECRET = 'must-not-be-inherited';
+  process.env.LOCALWORKSPACEBRIDGE_PROXY_TEST_SECRET= [REDACTED_SECRET];
 
   const environment = commandEnvironment({ inheritEnv: false });
   if (environment.HTTPS_PROXY !== process.env.HTTPS_PROXY || environment.NO_PROXY !== process.env.NO_PROXY || environment.NODE_USE_ENV_PROXY !== '1') {

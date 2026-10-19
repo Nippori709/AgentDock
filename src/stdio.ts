@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { getExecManager, installExecShutdown } from "./execOps.js";
 import { getBrowserSessionManager } from "./browserSessionOps.js";
+import { getTerminalManager } from "./terminalOps.js";
+import { getLspManager } from "./lspOps.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadConfig } from "./config.js";
 import { createLocalWorkspaceBridgeServer } from "./server.js";
@@ -38,7 +40,13 @@ async function main(): Promise<void> {
   applyToolSecuritySchemeCompat(config, transport);
   await server.connect(transport);
   const previousClose = transport.onclose;
-  transport.onclose = () => { previousClose?.(); void getExecManager(config).dispose(); void getBrowserSessionManager(config).dispose(); };
+  transport.onclose = () => {
+    previousClose?.();
+    void getExecManager(config).dispose();
+    void getBrowserSessionManager(config).dispose();
+    void getTerminalManager(config).dispose();
+    void getLspManager(config).dispose();
+  };
 }
 
 main().catch((error) => {

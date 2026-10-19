@@ -708,6 +708,19 @@ export async function getState() {
   return { config, status: await liveStateFor(config), logPath: LOG_PATH };
 }
 
+export function getApprovalKey() {
+  const config = loadConfig();
+  const runtime = currentRuntime(config);
+  const profile = readProfile(config.defaultRoot)
+    || (runtime?.root ? readProfile(runtime.root) : null)
+    || {};
+  const approvalKey = String(profile.token || '').trim();
+  if (!approvalKey) {
+    throw new Error('当前 AgentDock profile 中没有可用的 OAuth approval key。');
+  }
+  return approvalKey;
+}
+
 export async function applyConfig(rawConfig, onProgress = () => {}) {
   const next = normalizeAndValidateConfig(rawConfig);
   const previous = loadConfig();

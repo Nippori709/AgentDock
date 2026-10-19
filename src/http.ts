@@ -262,7 +262,7 @@ function selectOptions(values: readonly string[], current: string): string {
 function serverUrlDisplay(endpoint: string | undefined, authEnabled: boolean, oauthEnabled = false): string {
   if (!endpoint) return "";
   const safeEndpoint = redactSensitiveText(endpoint);
-  return oauthEnabled ? `${safeEndpoint} (OAuth)` : authEnabled ? `${safeEndpoint} (Authorization: Bearer required)` : safeEndpoint;
+  return oauthEnabled ? `${safeEndpoint} (OAuth)` : authEnabled ? `${safeEndpoint} (Authorization: Bearer [REDACTED_SECRET])` : safeEndpoint;
 }
 
 function currentTunnelMessage(tunnel: TunnelMode, endpoint: string): string {
@@ -474,7 +474,7 @@ Most users should run: local-workspace-bridge start`);
 
 function onboardingPage(config: LocalWorkspaceBridgeConfig): string {
   const localMcp = `http://${config.host}:${config.port}/mcp`;
-  const localMcpDisplay = config.authToken ? `${localMcp} (Authorization: Bearer required)` : localMcp;
+  const localMcpDisplay = config.authToken ? `${localMcp} (Authorization: Bearer [REDACTED_SECRET])` : localMcp;
   const allowedRoots = config.allowedRoots.map((root) => `<li>${escapeHtml(root)}</li>`).join("");
   const authLabel = config.publicUrl && config.authToken ? "OAuth + PKCE" : config.authToken ? "Token protected" : "Disabled";
   const writeTone = config.writeMode === "workspace" ? "agent" : config.writeMode;
@@ -1425,7 +1425,7 @@ function onboardingPage(config: LocalWorkspaceBridgeConfig): string {
           tunnelName: data.tunnelName,
           ngrokConfig: data.ngrokConfig,
           cloudflareConfig: data.cloudflareConfig,
-          cloudflareTokenFile: data.cloudflareTokenFile,
+          cloudflareTokenFile: [REDACTED_SECRET],
           port: Number(data.port),
           mode: data.mode,
           bash: data.bash,

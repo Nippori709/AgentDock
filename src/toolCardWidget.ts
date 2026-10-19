@@ -372,7 +372,7 @@ export const toolCardWidgetHtml = String.raw`<!doctype html>
         const summary = '<div class="summary"><strong>Ready to work.</strong> This workspace is connected for the current conversation.</div>' +
           factRows([
             ["Root", '<span class="mono path">' + escapeHtml(rootPath) + '</span>', true],
-            ["Instructions", data.agents_loaded ? "AGENTS.md loaded" : "No AGENTS.md found"],
+            ["Instructions", (data.instructions_loaded ?? data.agents_loaded) ? "Project instructions loaded" : "No project instructions found"],
             ["Access", asText(data.tool_mode, "standard") + " tools · " + asText(data.write_mode, "off") + " writes"],
             ["Shell", asText(data.bash_mode, "off")]
           ]);
@@ -453,6 +453,81 @@ export const toolCardWidgetHtml = String.raw`<!doctype html>
         return card(title, command || "Command finished", success ? "Passed" : "Review", success ? "good" : "warn", factsBlock + codeBlock("Terminal", output, true));
       }
 
+      function retainedNotice(data) {
+        const retained = asText(data.retained_result_path, "");
+        if (!retained) return "";
+        return '<div class="notice">Full result retained at <span class="mono path">' + escapeHtml(retained) + '</span></div>';
+      }
+
+      function renderSearchResult(data) {
+        const matches = toArray(data.matches);
+        const files = new Set(matches.map((item) => item && typeof item === "object" ? asText(item.path, "") : "").filter(Boolean));
+        const rows = matches.slice(0, 14).map((item) => {
+          if (!item || typeof item !== "object") return asText(item);
+          const where = [asText(item.path, ""), item.line ? asText(item.line) : ""].filter(Boolean).join(":");
+          const preview = asText(item.preview ?? item.text ?? item.match, "");
+          return where + (preview ? " — " + preview : "");
+        });
+        const metrics = '<div class="metrics">' + metric(matches.length, "matches") + metric(files.size, "files") + metric(data.truncated ? "yes" : "no", "truncated") + '</div>';
+        return card("Search results", asText(data.root, "Workspace"), data.truncated ? "Partial" : "Ready", data.truncated ? "warn" : "good",
+          metrics + list(rows, "No matches") + retainedNotice(data));
+      }
+
+      function renderLspResult(data) {
+        const operation = asText(data.operation, "LSP");
+        const provider = asText(data.provider, "language server");
+        const diagnostics = toArray(data.diagnostics);
+        const symbols = toArray(data.symbols);
+        const calls = toArray(data.calls);
+        const locations = toArray(data.locations);
+        const items = diagnostics.length ? diagnostics : symbols.length ? symbols : calls.length ? calls : locations;
+        const rows = items.slice(0, 16).map((item) => {
+          if (!item || typeof item !== "object") return asText(item);
+          const loc = item.location && typeof item.location === "object" ? item.location : item;
+          const where = [asText(loc.path ?? data.path, ""), loc.line ? asText(loc.line) : "", loc.character ? asText(loc.character) : ""].filter(Boolean).join(":");
+          const label = asText(item.name ?? item.message ?? item.detail, "");
+          return [where, label].filter(Boolean).join(" — ");
+        });
+        const count = items.length;
+        const factsBlock = factRows([
+          ["Provider", provider],
+          ["Server", data.server_reused ? "reused" : "started"],
+          ["Document", '<span class="mono path">' + escapeHtml(asText(data.path, "")) + '</span>', true]
+        ]);
+        const hover = asText(data.hover, "");
+        return card("LSP · " + operation, provider, data.truncated ? "Partial" : "Ready", data.truncated ? "warn" : "good",
+          '<div class="metrics">' + metric(count, "results") + metric(number(data.document_version), "doc version") + '</div>' +
+          factsBlock +
+          (hover ? codeBlock("Hover", hover) : list(rows, "No results")) +
+          retainedNotice(data));
+      }
+
+      function renderTaskResult(data) {
+        const tasks = toArray(data.tasks || data.processes || data.terminals);
+        if (tasks.length) {
+          const rows = tasks.slice(0, 16).map((task) => {
+            if (!task || typeof task !== "object") return asText(task);
+            const state = task.running ? "running" : asText(task.state, "stopped");
+            return asText(task.task_id ?? task.process_id ?? task.terminal_id, "task") + " · " + state + (task.label || task.command || task.shell ? " · " + asText(task.label ?? task.command ?? task.shell) : "");
+          });
+          return card("Background tasks", asText(data.root, "Workspace"), tasks.some((task) => task?.running) ? "Running" : "Idle", tasks.some((task) => task?.running) ? "warn" : "good",
+            '<div class="metrics">' + metric(tasks.length, "tasks") + metric(tasks.filter((task) => task?.running).length, "running") + '</div>' + list(rows, "No tasks"));
+        }
+        const running = Boolean(data.running);
+        const state = asText(data.state, running ? "running" : "complete");
+        const output = Array.isArray(data.output)
+          ? data.output.map((item) => item && typeof item === "object" ? asText(item.text, "") : asText(item)).join("")
+          : asText(data.output, "");
+        const label = asText(data.command ?? data.shell ?? data.task_id ?? data.process_id ?? data.terminal_id, "Task");
+        const factsBlock = factRows([
+          ["State", state],
+          ["Directory", '<span class="mono path">' + escapeHtml(asText(data.cwd ?? data.root, "Workspace")) + '</span>', true],
+          ["Exit", data.exit_code === null || data.exit_code === undefined ? "—" : asText(data.exit_code)]
+        ]);
+        return card(running ? "Task running" : "Task update", label, running ? "Running" : "Ready", running ? "warn" : "good",
+          factsBlock + (output ? codeBlock("Output", output, true) : "") + retainedNotice(data));
+      }
+
       function renderGeneric(data) {
         const title = asText(data.local_workspace_bridge_title, "Tool result");
         const preview = JSON.stringify(data, null, 2);
@@ -482,6 +557,9 @@ export const toolCardWidgetHtml = String.raw`<!doctype html>
         else if (tool === "git_status") root.innerHTML = renderStatus(data);
         else if (tool === "show_changes") root.innerHTML = data.analysis ? renderChangeAnalysis(data) : renderChanges(data);
         else if (tool === "bash") root.innerHTML = renderBash(data);
+        else if (tool === "search" || tool === "grep") root.innerHTML = renderSearchResult(data);
+        else if (tool === "lsp") root.innerHTML = renderLspResult(data);
+        else if (tool.startsWith("task_") || tool.startsWith("exec_") || tool.startsWith("terminal_")) root.innerHTML = renderTaskResult(data);
         else root.innerHTML = renderGeneric(data);
         return true;
       }

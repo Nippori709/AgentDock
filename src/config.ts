@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { DEFAULT_ANALYSIS_LIMITS, type AnalysisLimits } from "./analysis/types.js";
+createRequire(import.meta.url)("../scripts/runtime/legacy-env.cjs");
 
 export type BashMode = "off" | "safe" | "full";
 export type BashTranscriptMode = "compact" | "full";
@@ -9,6 +11,8 @@ export type ShellMode = "auto" | "bash" | "powershell" | "pwsh" | "cmd";
 export type CodexSessionsMode = "off" | "metadata" | "read";
 export type WriteMode = "off" | "workspace";
 export type ToolMode = "minimal" | "standard" | "full";
+export type PermissionPolicy = "denylist" | "strict";
+export type HarnessProfile = "claude" | "native";
 
 export interface LocalWorkspaceBridgeConfig {
   defaultRoot: string;
@@ -30,6 +34,9 @@ export interface LocalWorkspaceBridgeConfig {
   codexDir: string;
   writeMode: WriteMode;
   toolMode: ToolMode;
+  harnessProfile: HarnessProfile;
+  hooksEnabled: boolean;
+  lspConfigPath?: string;
   inheritEnv: boolean;
   maxReadBytes: number;
   maxWriteBytes: number;
@@ -40,6 +47,11 @@ export interface LocalWorkspaceBridgeConfig {
   blockedGlobs: string[];
   analysisIgnoreGlobs: string[];
   toolCards: boolean;
+  permissionPolicy: PermissionPolicy;
+  permissionAllowRules: string[];
+  permissionDenyRules: string[];
+  toolResultRetention: boolean;
+  maxToolResultBytes: number;
   connectionTest: boolean;
   lowMemory: boolean;
   analysisEnabled: boolean;
@@ -217,6 +229,26 @@ function toolModeFrom(value: string | undefined): ToolMode {
   return "standard";
 }
 
+function permissionPolicyFrom(value: string | undefined): PermissionPolicy {
+  return value?.trim().toLowerCase() === "strict" ? "strict" : "denylist";
+}
+
+function harnessProfileFrom(value: string | undefined): HarnessProfile {
+  return value?.trim().toLowerCase() === "native" ? "native" : "claude";
+}
+
+function ruleListFrom(value: string | undefined): string[] {
+  if (!value?.trim()) return [];
+  const trimmed = value.trim();
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map((item) => String(item).trim()).filter(Boolean);
+    } catch {}
+  }
+  return trimmed.split(";").map((item) => item.trim()).filter(Boolean);
+}
+
 function widgetDomainFrom(value: string | undefined): string {
   const raw = value?.trim() || "https://example.invalid";
   let parsed: URL;
@@ -344,6 +376,9 @@ export function loadConfig(argv = process.argv.slice(2)): LocalWorkspaceBridgeCo
     codexDir: expandHome(codexDirArg || process.env.LOCALWORKSPACEBRIDGE_CODEX_DIR || path.join(os.homedir(), ".codex")),
     writeMode: writeModeFrom(writeArg ?? process.env.LOCALWORKSPACEBRIDGE_WRITE_MODE),
     toolMode: toolModeFrom(toolModeArg ?? process.env.LOCALWORKSPACEBRIDGE_TOOL_MODE),
+    harnessProfile: harnessProfileFrom(process.env.LOCALWORKSPACEBRIDGE_HARNESS_PROFILE),
+    hooksEnabled: boolFrom(process.env.LOCALWORKSPACEBRIDGE_HOOKS, false),
+    lspConfigPath: process.env.LOCALWORKSPACEBRIDGE_LSP_CONFIG?.trim() || undefined,
     inheritEnv: process.env.LOCALWORKSPACEBRIDGE_INHERIT_ENV === "1",
     maxReadBytes: numberFrom(process.env.LOCALWORKSPACEBRIDGE_MAX_READ_BYTES, 180_000, 4_000, 2_000_000),
     maxWriteBytes: numberFrom(process.env.LOCALWORKSPACEBRIDGE_MAX_WRITE_BYTES, 1_000_000, 1_000, 10_000_000),
@@ -354,9 +389,14 @@ export function loadConfig(argv = process.argv.slice(2)): LocalWorkspaceBridgeCo
     blockedGlobs: [...DEFAULT_BLOCKED_GLOBS, ...extraBlockedGlobs],
     analysisIgnoreGlobs: [...DEFAULT_ANALYSIS_IGNORE_GLOBS, ...extraAnalysisIgnoreGlobs],
     toolCards: boolFrom(toolCardsArg ?? process.env.LOCALWORKSPACEBRIDGE_TOOL_CARDS, false),
+    permissionPolicy: permissionPolicyFrom(process.env.LOCALWORKSPACEBRIDGE_PERMISSION_POLICY),
+    permissionAllowRules: ruleListFrom(process.env.LOCALWORKSPACEBRIDGE_PERMISSION_ALLOW_RULES),
+    permissionDenyRules: ruleListFrom(process.env.LOCALWORKSPACEBRIDGE_PERMISSION_DENY_RULES),
+    toolResultRetention: boolFrom(process.env.LOCALWORKSPACEBRIDGE_TOOL_RESULT_RETENTION, true),
+    maxToolResultBytes: numberFrom(process.env.LOCALWORKSPACEBRIDGE_MAX_TOOL_RESULT_BYTES, 20 * 1024 * 1024, 64_000, 100 * 1024 * 1024),
     connectionTest: boolFrom(process.env.LOCALWORKSPACEBRIDGE_CONNECTION_TEST, false),
     lowMemory,
-    analysisEnabled: boolFrom(process.env.LOCALWORKSPACEBRIDGE_ANALYSIS, true),
+    analysisEnabled: boolFrom(process.env.LOCALWORKSPACEBRIDGE_ANALYSIS, false),
     analysisLimits: {
       maxInventoryFiles: numberFrom(process.env.LOCALWORKSPACEBRIDGE_ANALYSIS_MAX_INVENTORY_FILES, analysisDefaults.maxInventoryFiles, 100, 100_000),
       maxAnalyzedFiles: numberFrom(process.env.LOCALWORKSPACEBRIDGE_ANALYSIS_MAX_ANALYZED_FILES, analysisDefaults.maxAnalyzedFiles, 10, 50_000),

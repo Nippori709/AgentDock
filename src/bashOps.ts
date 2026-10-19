@@ -345,8 +345,16 @@ export async function terminateProcessTree(
   if (!pid || child.exitCode !== null || child.signalCode !== null) return;
 
   if (platform === "win32") {
+    try { child.stdin?.destroy(); } catch {}
     await runTaskkill(pid, true);
-    await waitForChildClose(child, graceMs);
+    if (await waitForChildClose(child, graceMs)) return;
+    // Windows can keep the parent shell alive briefly after taskkill /T /F,
+    // especially after browser/process-heavy test sequences. Force the direct
+    // child as a fallback, retry the tree kill, and wait for the actual close
+    // event so TaskStop/exec_stop has deterministic semantics.
+    try { child.kill("SIGKILL"); } catch {}
+    await runTaskkill(pid, true);
+    await waitForChildClose(child, Math.max(graceMs, 5_000));
     return;
   }
 

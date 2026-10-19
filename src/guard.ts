@@ -72,7 +72,7 @@ export class WorkspaceManager {
     return this.touch(workspace);
   }
 
-  openWorkspace(rootInput?: string): Workspace {
+  openWorkspace(rootInput?: string, options: { activate?: boolean } = {}): Workspace {
     const requested = rootInput?.trim() ? expandHome(rootInput.trim()) : this.config.defaultRoot;
     const resolved = path.resolve(requested);
     if (!fs.existsSync(resolved)) {
@@ -91,13 +91,13 @@ export class WorkspaceManager {
     }
 
     const existing = [...this.workspaces.values()].find((workspace) => workspace.root === realRoot);
-    if (existing) return this.touch(existing);
+    if (existing) return options.activate === false ? existing : this.touch(existing);
 
     const id = workspaceIdForRoot(realRoot);
     const now = new Date().toISOString();
     const workspace = { id, root: realRoot, openedAt: now, lastUsedAt: now };
     this.workspaces.set(id, workspace);
-    return this.touch(workspace);
+    return options.activate === false ? workspace : this.touch(workspace);
   }
 
   getWorkspace(id?: string): Workspace {

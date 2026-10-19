@@ -1,10 +1,14 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import type { LocalWorkspaceBridgeConfig } from "./config.js";
 import { PathGuard, WorkspaceManager, LocalWorkspaceBridgeError, type Workspace } from "./guard.js";
 import { assertBashSession, assertSafeCommand, commandEnvironment, resolveShellCommand, terminateProcessTree } from "./bashOps.js";
 import { redactSensitiveText } from "./redact.js";
 import { getBrowserSessionManager } from "./browserSessionOps.js";
+import { getTerminalManager } from "./terminalOps.js";
+import { getLspManager } from "./lspOps.js";
 
 type State = "running" | "exited" | "failed" | "stopping" | "stopped" | "timed_out";
 interface Output { cursor: number; stream: "stdout" | "stderr"; text: string }
@@ -13,12 +17,14 @@ interface Job {
   command: string; cwd: string; shell: string; mode: string; child: ChildProcessWithoutNullStreams;
   started: number; ended?: number; state: State; exitCode: number | null; signal: string | null;
   events: Output[]; next: number; bytes: number; timer: NodeJS.Timeout;
+  spillPath?: string; spillBytes: number; spillCapped: boolean;
   done: Promise<void>; finish: () => void; stopping?: Promise<void>;
   inputBusy?: boolean;
 }
 const MAX_JOBS = 32;
 const MAX_RUNNING = 8;
 const MAX_LOG_BYTES = 1024 * 1024;
+const MAX_SPILL_BYTES = 20 * 1024 * 1024;
 const RETENTION_MS = 60 * 60 * 1000;
 
 /** One service runtime, shared across HTTP requests, never across config identities. */
@@ -57,6 +63,26 @@ export class ExecManager {
   private append(job: Job, stream: Output["stream"], text: string) {
     // Redact complete lines before pagination so tokens split across pipe chunks cannot leak.
     const safe = redactSensitiveText(text);
+    if (job.spillPath && !job.spillCapped) {
+      const entry = `[${stream}] ` + safe;
+      const remaining = MAX_SPILL_BYTES - job.spillBytes;
+      if (remaining > 0) {
+        const buffer = Buffer.from(entry, "utf8");
+        const chunk = buffer.length <= remaining ? buffer : buffer.subarray(0, remaining);
+        try {
+          fs.appendFileSync(job.spillPath, chunk);
+          job.spillBytes += chunk.length;
+        } catch {
+          job.spillPath = undefined;
+        }
+      }
+      if (job.spillBytes >= MAX_SPILL_BYTES) {
+        job.spillCapped = true;
+        if (job.spillPath) {
+          try { fs.appendFileSync(job.spillPath, "\n[process log spill capped at 20 MiB]\n", "utf8"); } catch {}
+        }
+      }
+    }
     for (let offset = 0; offset < safe.length; offset += 4000) {
       const event = { cursor: job.next++, stream, text: safe.slice(offset, offset + 4000) };
       job.events.push(event);
@@ -127,11 +153,23 @@ export class ExecManager {
     });
     let finish!: () => void;
     const done = new Promise<void>(resolve => { finish = resolve; });
+    const id = randomUUID();
+    let spillPath: string | undefined;
+    if (this.config.writeMode === "workspace") {
+      try {
+        const spillDir = path.join(workspace.root, ".ai-bridge", "process-logs");
+        fs.mkdirSync(spillDir, { recursive: true });
+        spillPath = path.join(spillDir, `${id}.log`);
+        fs.writeFileSync(spillPath, "", { flag: "wx" });
+      } catch {
+        spillPath = undefined;
+      }
+    }
     const job: Job = {
-      id: randomUUID(), requestId: options.requestId, signature, workspace, command: redactSensitiveText(command),
+      id, requestId: options.requestId, signature, workspace, command: redactSensitiveText(command),
       cwd: cwd.relPath || ".", shell: shell.shell, mode: this.config.bashMode, child,
       started: Date.now(), state: "running", exitCode: null, signal: null,
-      events: [], next: 0, bytes: 0, done, finish,
+      events: [], next: 0, bytes: 0, spillPath, spillBytes: 0, spillCapped: false, done, finish,
       timer: setTimeout(() => { void this.stopJob(job, "timed_out"); }, timeoutMs)
     };
     job.timer.unref();
@@ -183,7 +221,9 @@ export class ExecManager {
       state: job.state, running: !job.ended, command: job.command, cwd: job.cwd, shell: job.shell,
       exit_code: job.exitCode, signal: job.signal, duration_ms: (job.ended ?? Date.now()) - job.started,
       output, next_cursor: nextCursor, has_more: nextCursor < job.next, output_lost: cursor < first,
-      output_note: "Logs are redacted and emitted at newline or process exit; partial lines are buffered. Pipes, not a PTY."
+      spill_path: job.spillPath ? path.relative(workspace.root, job.spillPath).split(path.sep).join("/") : null,
+      spill_capped: job.spillCapped,
+      output_note: "Logs are redacted and emitted at newline or process exit; partial lines are buffered. When workspace writes are enabled, the redacted full stream is retained in spill_path up to 20 MiB. Pipes, not a PTY."
     };
   }
 
@@ -192,7 +232,8 @@ export class ExecManager {
     this.prune();
     return [...this.jobs.values()].filter(job => job.workspace.root === workspace.root).map(job => ({
       process_id: job.id, request_id: job.requestId, command: job.command, cwd: job.cwd,
-      state: job.state, running: !job.ended, exit_code: job.exitCode, next_cursor: job.next
+      state: job.state, running: !job.ended, exit_code: job.exitCode, next_cursor: job.next,
+      spill_path: job.spillPath ? path.relative(workspace.root, job.spillPath).split(path.sep).join("/") : null
     }));
   }
 
@@ -260,7 +301,7 @@ export function installExecShutdown(config: LocalWorkspaceBridgeConfig) {
     stopping = true;
     const deadline = setTimeout(() => process.exit(code), 5000);
     deadline.unref();
-    void Promise.allSettled([getExecManager(config).dispose(), getBrowserSessionManager(config).dispose()]).finally(() => process.exit(code));
+    void Promise.allSettled([getExecManager(config).dispose(), getBrowserSessionManager(config).dispose(), getTerminalManager(config).dispose(), getLspManager(config).dispose()]).finally(() => process.exit(code));
   };
   process.once("SIGINT", () => shutdown(130));
   process.once("SIGTERM", () => shutdown(143));

@@ -15,7 +15,7 @@ function run(args) {
     cwd: projectRoot,
     encoding: 'utf8',
     timeout: 5000,
-    env: { ...process.env, NO_COLOR: '1', CI: '1', LOCALWORKSPACEBRIDGE_HOME: home }
+    env: { ...process.env, NO_COLOR: '1', CI: '1', LOCALWORKSPACEBRIDGE_HOME: home, LOCALWORKSPACEBRIDGE_ANALYSIS: '1' }
   });
 }
 

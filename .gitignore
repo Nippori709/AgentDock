@@ -17,3 +17,9 @@ Thumbs.db
 **/npm-cache/
 benchmarks/results/
 control-center/preview.png
+
+# Machine-local credentials, runtime shares, and one-off workstation scripts.
+config/ngrok.yml
+share/
+Start-AgentDock.cmd
+patch_proxy.py
