@@ -6,6 +6,12 @@ AgentDock is a local MCP gateway that gives ChatGPT bounded access to a develope
 
 > **Status:** early public release (`0.2.x`). Review the security model before exposing a local workspace through a public tunnel.
 
+## macOS support (in development)
+
+macOS installation, per-user launchd startup, and Control Center setup are documented in [MACOS.md](MACOS.md). From a clean clone, run `npm ci` and `npm run setup:mac`. Complete the one-time workspace/tunnel setup separately. macOS support is validated by GitHub Actions and should be verified on a real Mac before release.
+
+Windows installation remains unchanged.
+
 ## 0.2.0 agent tools
 
 Persistent commands with incremental logs, stdin, cancellation and HTTP reconnects; isolated local-browser interactions and native screenshots; bounded batch reads and SHA-256 checked edits. The latest Control Center startup, hot settings and PyMuPDF fixes are retained. ChatGPT remains the planner.
