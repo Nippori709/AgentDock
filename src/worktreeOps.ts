@@ -60,7 +60,7 @@ function sameExistingLocation(left: string, right: string): boolean {
     // names may refer to the same directory as their long-path equivalents.
     const a = fs.statSync(left, { bigint: true });
     const b = fs.statSync(right, { bigint: true });
-    if (a.dev === b.dev && a.ino === b.ino) return true;
+    if (a.ino > 0n && a.dev === b.dev && a.ino === b.ino) return true;
   } catch { /* Some paths may no longer exist; fall back to canonical spelling. */ }
   const a = canonicalExistingPath(left);
   const b = canonicalExistingPath(right);
