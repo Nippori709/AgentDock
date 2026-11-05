@@ -26,6 +26,18 @@ export function isSubpath(child: string, parent: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
+// macOS resolves /var to /private/var. Compare canonical roots to avoid
+// rejecting an explicitly authorized directory because of a path alias.
+function isWithinAllowedRoots(realRoot: string, allowedRoots: string[]): boolean {
+  return allowedRoots.some((allowedRoot) => {
+    try {
+      return isSubpath(realRoot, fs.realpathSync(allowedRoot));
+    } catch {
+      return false; // A missing or unreadable allow-root grants no access.
+    }
+  });
+}
+
 export function normalizeRelPath(relPath: string): string {
   const normalized = relPath.split(path.sep).join("/");
   if (normalized === "") return ".";
@@ -83,7 +95,7 @@ export class WorkspaceManager {
       throw new LocalWorkspaceBridgeError(`Workspace root is not a directory: ${resolved}`);
     }
     const realRoot = fs.realpathSync(resolved);
-    const allowed = this.config.allowedRoots.some((allowedRoot) => isSubpath(realRoot, allowedRoot));
+    const allowed = isWithinAllowedRoots(realRoot, this.config.allowedRoots);
     if (!allowed) {
       throw new LocalWorkspaceBridgeError(
         `Workspace root is outside allowed roots: ${realRoot}\nAllowed roots:\n${this.config.allowedRoots.map((r) => `- ${r}`).join("\n")}`
@@ -145,7 +157,7 @@ export class WorkspaceManager {
   reconcileRuntimeConfig(options: { resetDefault?: boolean } = {}): { closedWorkspaceIds: string[] } {
     const closedWorkspaceIds: string[] = [];
     for (const [id, workspace] of this.workspaces) {
-      const allowed = this.config.allowedRoots.some((allowedRoot) => isSubpath(workspace.root, allowedRoot));
+      const allowed = isWithinAllowedRoots(workspace.root, this.config.allowedRoots);
       if (allowed) continue;
       this.workspaces.delete(id);
       closedWorkspaceIds.push(id);
