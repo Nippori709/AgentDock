@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         node: [20, 22]
     runs-on: ${{ matrix.os }}
 
@@ -48,6 +48,10 @@ jobs:
       - name: Control Center layout
         if: runner.os == 'Windows'
         run: npm run control-center:layout
+
+      - name: Verify macOS installer (no autostart)
+        if: runner.os == 'macOS'
+        run: npm run control-center:install -- --no-startup
 
       - name: Smoke tests
         run: npm run smoke
