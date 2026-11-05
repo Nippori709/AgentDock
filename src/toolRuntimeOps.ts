@@ -137,8 +137,13 @@ function resultRoot(config: LocalWorkspaceBridgeConfig, result: any): string | u
   const candidate = structured && typeof structured === "object" && !Array.isArray(structured)
     ? (structured as Record<string, unknown>).root
     : undefined;
-  const root = typeof candidate === "string" && candidate ? path.resolve(candidate) : path.resolve(config.defaultRoot);
-  if (!config.allowedRoots.some((allowed) => isSubpath(root, path.resolve(allowed)))) return undefined;
+  const requested = typeof candidate === "string" && candidate ? path.resolve(candidate) : path.resolve(config.defaultRoot);
+  if (!fs.existsSync(requested)) return undefined;
+  const root = fs.realpathSync(requested);
+  const allowed = config.allowedRoots.some((allowedRoot) => {
+    try { return isSubpath(root, fs.realpathSync(allowedRoot)); } catch { return false; }
+  });
+  if (!allowed) return undefined;
   return root;
 }
 
