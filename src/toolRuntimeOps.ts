@@ -3,7 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { minimatch } from "minimatch";
 import type { LocalWorkspaceBridgeConfig } from "./config.js";
-import { isSubpath, LocalWorkspaceBridgeError } from "./guard.js";
+import { isWithinAllowedRoots, LocalWorkspaceBridgeError } from "./guard.js";
 import { redactSensitiveText, redactStructured } from "./redact.js";
 
 const RETAINABLE_TOOLS = new Set([
@@ -140,9 +140,7 @@ function resultRoot(config: LocalWorkspaceBridgeConfig, result: any): string | u
   const requested = typeof candidate === "string" && candidate ? path.resolve(candidate) : path.resolve(config.defaultRoot);
   if (!fs.existsSync(requested)) return undefined;
   const root = fs.realpathSync(requested);
-  const allowed = config.allowedRoots.some((allowedRoot) => {
-    try { return isSubpath(root, fs.realpathSync(allowedRoot)); } catch { return false; }
-  });
+  const allowed = isWithinAllowedRoots(root, config.allowedRoots);
   if (!allowed) return undefined;
   return root;
 }
