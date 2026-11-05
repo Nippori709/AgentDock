@@ -20,7 +20,7 @@ try {
 
   const modes = {};
   for (const mode of ['minimal', 'standard', 'full']) {
-    modes[mode] = await withClient(root, { LOCALWORKSPACEBRIDGE_TOOL_MODE: mode }, async (client) => {
+    modes[mode] = await withClient(root, { LOCALWORKSPACEBRIDGE_TOOL_MODE: mode, LOCALWORKSPACEBRIDGE_HARNESS_PROFILE: 'native' }, async (client) => {
       const tools = await client.listTools();
       const names = tools.tools.map((tool) => tool.name);
       const workspaceId = await client.openWorkspace();
@@ -44,7 +44,7 @@ try {
     });
   }
 
-  const scale = await withClient(root, { LOCALWORKSPACEBRIDGE_TOOL_MODE: 'standard' }, async (client) => {
+  const scale = await withClient(root, { LOCALWORKSPACEBRIDGE_TOOL_MODE: 'standard', LOCALWORKSPACEBRIDGE_HARNESS_PROFILE: 'native', LOCALWORKSPACEBRIDGE_ANALYSIS: '1' }, async (client) => {
     const workspaceId = await client.openWorkspace();
     const started = performance.now();
     const inspect = await client.tool('inspect_workspace', { workspace_id: workspaceId, mode: 'inventory', max_files: Math.max(fileCount + 20, 300) });
