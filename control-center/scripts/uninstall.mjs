@@ -3,8 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
+if (process.platform === 'darwin') {
+  const { uninstallMacControlCenter } = await import('./macos-launchd.mjs');
+  await uninstallMacControlCenter({ purge: process.argv.includes('--purge') });
+  process.exit(0);
+}
 if (process.platform !== 'win32') {
-  throw new Error('AgentDock Control Center desktop uninstaller currently supports Windows only.');
+  throw new Error('AgentDock Control Center uninstaller supports Windows and macOS only.');
 }
 
 const script = [
