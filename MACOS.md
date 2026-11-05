@@ -23,7 +23,7 @@ brew install node git python ngrok
 python3 -m pip install --user "pymupdf>=1.24,<2"
 ~~~
 
-On Python installations that reject user-site installs due to externally managed environments, create a virtual environment and use that interpreter for the media workers, or install PyMuPDF through the appropriate environment manager. Do not use \`sudo pip\` or force an externally managed Python environment.
+On Python installations that reject user-site installs due to externally managed environments, create a virtual environment and use that interpreter for the media workers, or install PyMuPDF through the appropriate environment manager. Do not use `sudo pip` or force an externally managed Python environment.
 
 ## First-time installation
 
@@ -34,7 +34,7 @@ npm ci
 npm run setup:mac
 ~~~
 
-\`setup:mac\` builds the TypeScript server, validates a stable Node.js executable and dependencies, and installs \`~/Library/LaunchAgents/com.agentdock.control-center.plist\`. The agent starts for the current signed-in user and at future logins. **Do not run with sudo.**
+`setup:mac` builds the TypeScript server, validates a stable Node.js executable and dependencies, and installs `~/Library/LaunchAgents/com.agentdock.control-center.plist`. The agent starts for the current signed-in user and at future logins. **Do not run with sudo.**
 
 Open the Control Center:
 
@@ -50,7 +50,7 @@ The background Control Center supervises AgentDock but it cannot guess your proj
 node scripts/local-workspace-bridge.mjs setup
 ~~~
 
-Example authorized project root: \`/Users/yourname/Projects/my-app\`. Do **not** grant the entire home directory by default. Follow the prompts to choose a tunnel type, save the workspace profile, and start AgentDock.
+Example authorized project root: `/Users/yourname/Projects/my-app`. Do **not** grant the entire home directory by default. Follow the prompts to choose a tunnel type, save the workspace profile, and start AgentDock.
 
 To connect ChatGPT Web, use the **HTTPS /mcp URL** printed by AgentDock and complete its OAuth consent flow. The local address on port 48731 is only the Control Center and is **not** the remote MCP endpoint. Never commit ngrok tokens, OAuth approval keys, or machine-local profiles.
 
@@ -78,7 +78,7 @@ For the launchd service:
 launchctl print "gui/$(id -u)/com.agentdock.control-center"
 ~~~
 
-Logs live in \`~/.agentdock-control/logs/\`. If you switch Node versions or move the checkout to another folder, rerun \`npm run setup:mac\` to update the service's absolute paths.
+Logs live in `~/.agentdock-control/logs/`. If you switch Node versions or move the checkout to another folder, rerun `npm run setup:mac` to update the service's absolute paths.
 
 To verify compilation and dependencies without installing login startup:
 
@@ -113,8 +113,8 @@ node control-center/scripts/uninstall.mjs --purge
 
 ## macOS differences
 
-- **Default shell:** AgentDock uses \`/bin/bash\` for commands by default on macOS; users can explicitly choose a supported shell. The installed LaunchAgent supplies an explicit PATH including \`/opt/homebrew/bin\`, \`/usr/local/bin\`, and the selected Node binary directory. A login shell's interactive startup files are not required for login startup.
-- **Background service:** \`launchd\` handles startup and restarts the Control Center. The Control Center handles AgentDock recovery. Both are per-user processes.
+- **Default shell:** AgentDock uses `/bin/bash` for commands by default on macOS; users can explicitly choose a supported shell. The installed LaunchAgent supplies an explicit PATH including `/opt/homebrew/bin`, `/usr/local/bin`, and the selected Node binary directory. A login shell's interactive startup files are not required for login startup.
+- **Background service:** `launchd` handles startup and restarts the Control Center. The Control Center handles AgentDock recovery. Both are per-user processes.
 - **Privacy:** Desktop, Documents, Downloads, removable disks, and other protected locations may require macOS Privacy & Security consent. Only grant folders you intentionally want the tool to access.
 - **Sleep:** MacBook sleep/closed-lid suspension can stop remote connectivity despite launchd. A LaunchAgent does not override macOS sleep.
 - **Two computers:** use separate stable tunnel URLs and separate ChatGPT connections (for example, AgentDock-Windows and AgentDock-Mac). Do not copy personal authentication profiles between machines.
