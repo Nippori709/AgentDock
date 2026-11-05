@@ -14,8 +14,13 @@ const launcher = path.join(repoRoot, 'scripts', 'local-workspace-bridge.mjs');
 const distHttp = path.join(repoRoot, 'dist', 'http.js');
 const noStartup = process.argv.includes('--no-startup');
 
+if (process.platform === 'darwin') {
+  const { installMacControlCenter } = await import('./macos-launchd.mjs');
+  await installMacControlCenter({ noStartup });
+  process.exit(0);
+}
 if (process.platform !== 'win32') {
-  throw new Error('AgentDock Control Center desktop installer currently supports Windows 10/11 only.');
+  throw new Error('AgentDock Control Center installer supports Windows and macOS only.');
 }
 if (!fs.existsSync(launcher)) throw new Error(`AgentDock launcher not found: ${launcher}`);
 if (!fs.existsSync(distHttp)) {
