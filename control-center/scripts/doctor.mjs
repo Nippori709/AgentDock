@@ -9,6 +9,7 @@ import {
   resolveStableNodeRuntime,
   verifyRuntimeDependencies
 } from './runtime-node.mjs';
+import { macLaunchAgentStatus } from './macos-launchd.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const controlRoot = path.resolve(__dirname, '..');
@@ -98,8 +99,8 @@ async function httpReady(url, headers = {}) {
 }
 
 const checks = [];
-if (process.platform !== 'win32') {
-  checks.push(result('Platform', 'WARN', 'Desktop Control Center startup checks are intended for Windows 10/11.'));
+if (process.platform !== 'win32' && process.platform !== 'darwin') {
+  checks.push(result('Platform', 'WARN', 'Desktop Control Center startup installer supports Windows and macOS.'));
 }
 
 const discovered = discoverNodeRuntimes();
@@ -160,32 +161,67 @@ checks.push(result(
   !profilePresent
 ));
 
-const shortcutPath = startupShortcutPath();
-const shortcut = readShortcut(shortcutPath);
-if (!shortcut) {
-  checks.push(result(
-    'Windows sign-in shortcut',
-    'FAIL',
-    shortcutPath
-      ? `Missing or unreadable: ${shortcutPath}. Run "npm run control-center:install".`
-      : 'Unable to resolve the Windows Startup folder.',
-    true
-  ));
+if (process.platform === 'win32') {
+  const shortcutPath = startupShortcutPath();
+  const shortcut = readShortcut(shortcutPath);
+  if (!shortcut) {
+    checks.push(result(
+      'Windows sign-in shortcut',
+      'FAIL',
+      shortcutPath
+        ? `Missing or unreadable: ${shortcutPath}. Run "npm run control-center:install".`
+        : 'Unable to resolve the Windows Startup folder.',
+      true
+    ));
+  } else {
+    const args = String(shortcut.arguments || '');
+    const selectedMatches = selectedNode
+      ? args.toLowerCase().includes(selectedNode.path.toLowerCase())
+      : false;
+    const temporaryShortcut = /\\(?:\.cache|appdata\\local\\temp|codex-runtimes|codex-primary-runtime)\\/i.test(args);
+    const safe = selectedMatches && !temporaryShortcut;
+    checks.push(result(
+      'Windows sign-in shortcut',
+      safe ? 'PASS' : 'FAIL',
+      safe
+        ? `${shortcutPath} -> ${selectedNode.path}`
+        : `Startup shortcut is not bound to the selected stable Node runtime. Arguments: ${args}`,
+      !safe
+    ));
+  }
+  
+} else if (process.platform === 'darwin') {
+  const service = macLaunchAgentStatus();
+  if (!service.installed) {
+    checks.push(result(
+      'macOS login LaunchAgent', 'FAIL',
+      'Missing: ' + service.plist + '. Run "npm run control-center:install".', true
+    ));
+  } else {
+    const contents = fs.readFileSync(service.plist, 'utf8');
+    const correctNode = selectedNode ? contents.includes(
+      selectedNode.path.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    ) : false;
+    const correctServer = contents.includes(path.join(controlRoot, 'server.mjs')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+    checks.push(result(
+      'macOS login LaunchAgent',
+      correctNode && correctServer ? 'PASS' : 'FAIL',
+      correctNode && correctServer
+        ? service.plist + ' -> ' + selectedNode.path
+        : 'LaunchAgent refers to an old repository or Node runtime. Reinstall with "npm run control-center:install".',
+      !(correctNode && correctServer)
+    ));
+    checks.push(result(
+      'macOS launchd loaded',
+      service.loaded ? 'PASS' : 'WARN',
+      service.loaded
+        ? 'Per-user service is loaded in the current GUI session.'
+        : 'Service not currently loaded. Check "launchctl print gui/$(id -u)/com.agentdock.control-center". ' + service.detail
+    ));
+  }
 } else {
-  const args = String(shortcut.arguments || '');
-  const selectedMatches = selectedNode
-    ? args.toLowerCase().includes(selectedNode.path.toLowerCase())
-    : false;
-  const temporaryShortcut = /\\(?:\.cache|appdata\\local\\temp|codex-runtimes|codex-primary-runtime)\\/i.test(args);
-  const safe = selectedMatches && !temporaryShortcut;
-  checks.push(result(
-    'Windows sign-in shortcut',
-    safe ? 'PASS' : 'FAIL',
-    safe
-      ? `${shortcutPath} -> ${selectedNode.path}`
-      : `Startup shortcut is not bound to the selected stable Node runtime. Arguments: ${args}`,
-    !safe
-  ));
+  checks.push(result('Login startup', 'WARN', 'No desktop autostart integration for this platform.'));
 }
 
 const controlReady = await httpReady('http://127.0.0.1:48731/api/health');
@@ -222,9 +258,9 @@ if (process.argv.includes('--json')) {
   }
   console.log('');
   if (rebootReady) {
-    console.log('✓ AgentDock is ready for reboot-safe Windows startup.');
+    console.log('✓ AgentDock is ready for reboot-safe ' + (process.platform === 'darwin' ? 'macOS' : 'Windows') + ' startup.');
   } else {
-    console.log('✗ AgentDock is not ready for reboot-safe Windows startup.');
+    console.log('✗ AgentDock is not ready for reboot-safe ' + (process.platform === 'darwin' ? 'macOS' : 'Windows') + ' startup.');
     console.log('  Fix the FAIL items above, then rerun "npm run control-center:doctor".');
   }
 }
