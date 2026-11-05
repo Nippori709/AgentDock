@@ -26,7 +26,7 @@ test('macOS LaunchAgent starts a built Control Center with a stable absolute Nod
   assert.match(content, /<key>RunAtLoad<\/key><true\/>/);
   assert.match(content, /<key>KeepAlive<\/key><true\/>/);
   assert.ok(content.includes('<string>' + nodePath + '</string>'));
-  assert.ok(content.includes('<string>' + path.join(repo, 'control-center', 'server.mjs') + '</string>'));
+  assert.ok(content.includes('<string>' + path.posix.join(repo, 'control-center', 'server.mjs') + '</string>'));
   assert.ok(content.includes('/Users/test/.agentdock-control/logs/control-center.err.log'));
   assert.ok(content.includes('<key>AGENTDOCK_CONTROL_NO_OPEN</key><string>1</string>'));
   assert.ok(!content.includes('HTTP_TOKEN'));
