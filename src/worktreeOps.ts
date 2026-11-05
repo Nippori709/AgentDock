@@ -44,6 +44,11 @@ function assertAllowed(config: LocalWorkspaceBridgeConfig, absolute: string): st
   return resolved;
 }
 
+function canonicalExistingPath(filePath: string): string {
+  const resolved = path.resolve(filePath);
+  return fs.existsSync(resolved) ? fs.realpathSync(resolved) : resolved;
+}
+
 function safeName(input: string): string {
   const name = input.trim().replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
   if (!name) throw new LocalWorkspaceBridgeError("Worktree name must contain letters, numbers, dot, underscore, or dash.");
@@ -98,7 +103,7 @@ export function createWorktree(
   runGit(workspace.root, args, config.maxOutputBytes);
 
   const real = fs.realpathSync(target);
-  return listWorktrees(config, workspace).find((item) => path.resolve(item.path) === path.resolve(real))
+  return listWorktrees(config, workspace).find((item) => canonicalExistingPath(item.path) === canonicalExistingPath(real))
     ?? { path: real, branch: options.branch };
 }
 
@@ -109,9 +114,9 @@ export function removeWorktree(
   force = false
 ): WorktreeInfo {
   const target = assertAllowed(config, path.isAbsolute(targetPath) ? targetPath : path.resolve(workspace.root, targetPath));
-  const known = listWorktrees(config, workspace).find((item) => path.resolve(item.path) === path.resolve(target));
+  const known = listWorktrees(config, workspace).find((item) => canonicalExistingPath(item.path) === canonicalExistingPath(target));
   if (!known) throw new LocalWorkspaceBridgeError(`Not a registered git worktree: ${target}`);
-  if (path.resolve(known.path) === path.resolve(workspace.root)) {
+  if (canonicalExistingPath(known.path) === canonicalExistingPath(workspace.root)) {
     throw new LocalWorkspaceBridgeError("Refusing to remove the current primary workspace.");
   }
   runGit(workspace.root, ["worktree", "remove", ...(force ? ["--force"] : []), known.path], config.maxOutputBytes);
