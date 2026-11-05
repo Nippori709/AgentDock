@@ -57,6 +57,23 @@ function whereNodeCandidates() {
     .filter(Boolean);
 }
 
+function commonUnixNodeCandidates() {
+  if (process.platform === 'win32') return [];
+  const found = spawnSync('which', ['-a', 'node'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore']
+  });
+  const onPath = !found.error && found.status === 0
+    ? String(found.stdout || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+    : [];
+  return [
+    ...onPath,
+    '/opt/homebrew/bin/node', // macOS Apple Silicon Homebrew
+    '/usr/local/bin/node',    // macOS Intel Homebrew / official Node install
+    '/usr/bin/node'
+  ];
+}
+
 function commonWindowsNodeCandidates() {
   if (process.platform !== 'win32') return [];
   return [
@@ -121,7 +138,8 @@ export function discoverNodeRuntimes({ explicitPath = process.env.AGENTDOCK_CONT
     explicitPath,
     currentPath,
     ...whereNodeCandidates(),
-    ...commonWindowsNodeCandidates()
+    ...commonWindowsNodeCandidates(),
+    ...commonUnixNodeCandidates()
   ]);
   return paths.map(inspectNodeCandidate);
 }
@@ -136,7 +154,7 @@ export function resolveStableNodeRuntime(options = {}) {
       throw new Error(`AGENTDOCK_CONTROL_NODE is not a usable Node.js 20+ runtime: ${explicitPath}`);
     }
     if (explicit.temporary) {
-      throw new Error(`AGENTDOCK_CONTROL_NODE points to a temporary/cache runtime that is unsafe for Windows sign-in startup: ${explicit.path}`);
+      throw new Error(`AGENTDOCK_CONTROL_NODE points to a temporary/cache runtime that is unsafe for login startup: ${explicit.path}`);
     }
     return { selected: explicit, candidates, currentPath };
   }
@@ -152,7 +170,7 @@ export function resolveStableNodeRuntime(options = {}) {
     [
       'No reboot-safe Node.js 20+ runtime was found for AgentDock Control Center.',
       detail,
-      'Temporary/cache runtimes (for example Codex .cache/codex-runtimes) are not written into Windows startup shortcuts.',
+      'Temporary/cache runtimes (for example Codex .cache/codex-runtimes) are not used for login startup.',
       'Install Node.js LTS system-wide, reopen the terminal, run "npm ci", then rerun "npm run control-center:install".',
       'You may also set AGENTDOCK_CONTROL_NODE to a stable Node.js executable.'
     ].join('\n')

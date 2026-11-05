@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import http from 'node:http';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -15,11 +16,9 @@ const RENDERER_DIR = path.join(__dirname, 'renderer');
 const APP_WIDTH = 760;
 const APP_HEIGHT = 680;
 const SUPERVISOR_ENABLED = process.env.AGENTDOCK_CONTROL_DISABLE_SUPERVISOR !== '1';
-const BROWSER_PROFILE_DIR = path.join(
-  process.env.LOCALAPPDATA || process.env.USERPROFILE || __dirname,
-  'AgentDock-Control',
-  'BrowserProfile2'
-);
+const BROWSER_PROFILE_DIR = process.platform === 'darwin'
+  ? path.join(os.homedir(), 'Library', 'Application Support', 'AgentDock', 'BrowserProfile2')
+  : path.join(process.env.LOCALAPPDATA || process.env.USERPROFILE || __dirname, 'AgentDock-Control', 'BrowserProfile2');
 const sseClients = new Set();
 let maintenanceBusy = false;
 let supervisorBusy = false;
@@ -100,10 +99,10 @@ function windowsDrives() {
 }
 
 function browseDirectories(requestedPath = '') {
-  if (!requestedPath) {
+  if (!requestedPath && process.platform === 'win32') {
     return { mode: 'drives', current: '', parent: null, directories: windowsDrives() };
   }
-  const resolved = path.resolve(requestedPath);
+  const resolved = path.resolve(requestedPath || os.homedir());
   if (!fs.existsSync(resolved)) throw new Error(`目录不存在：${resolved}`);
   if (!fs.statSync(resolved).isDirectory()) throw new Error(`不是文件夹：${resolved}`);
   const current = fs.realpathSync(resolved);
@@ -117,6 +116,14 @@ function browseDirectories(requestedPath = '') {
 }
 
 function browserCandidates() {
+  if (process.platform === 'darwin') {
+    return [
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      path.join(os.homedir(), 'Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
+      '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium'
+    ];
+  }
   if (process.platform !== 'win32') return [];
   const local = process.env.LOCALAPPDATA || '';
   const pf = process.env.ProgramFiles || 'C:\\Program Files';
@@ -148,6 +155,11 @@ function openAppWindow() {
       windowsHide: true,
       stdio: 'ignore'
     });
+    child.unref();
+    return;
+  }
+  if (process.platform === 'darwin') {
+    const child = spawn('/usr/bin/open', [BASE_URL], { detached: true, stdio: 'ignore' });
     child.unref();
     return;
   }

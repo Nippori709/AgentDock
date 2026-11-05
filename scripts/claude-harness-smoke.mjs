@@ -158,7 +158,7 @@ process.stdin.on('data', chunk => {
   assert.match(textOf(task), /done/);
 
   const created = await call('WorktreeCreate', { name: 'smoke', path: worktreePath, detach: true });
-  assert.equal(created.isError, undefined);
+  assert.equal(created.isError, undefined, JSON.stringify(created));
   assert.equal(await fs.stat(worktreePath).then(s => s.isDirectory()), true);
   const list = await call('WorktreeList', {});
   assert.match(textOf(list), /-wt/);

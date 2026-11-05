@@ -8,6 +8,10 @@ AgentDock 是一个运行在本机的 MCP Gateway，让 ChatGPT 在明确的工�
 
 > 当前为早期公开版本 `0.2.x`。通过公网隧道暴露本机工作区前，请先阅读 [SECURITY.md](SECURITY.md)。
 
+## macOS 安装（开发中）
+
+MacBook（Apple Silicon / Intel）可以复用 AgentDock 的核心 MCP 工具，另增加 macOS Control Center 和用户级 `launchd` 自动启动。**安装教程与更新/卸载/诊断说明见 [MACOS.md](MACOS.md)**。在 Mac 上克隆后运行 `npm ci`、`npm run setup:mac`，首次使用再完成工作区及 Tunnel/OAuth 配置。此版本需要在真实 Mac 上验收，Windows 原有安装流程不变。
+
 ## 0.2.0 整合增强
 
 在 GitHub 最新版本的稳定 Node 启动、控制中心热更新、PyMuPDF 修复之上，加入持续命令执行（日志、标准输入、取消与重连）、本地浏览器操作与截图、批量读取和 SHA-256 防覆盖编辑。规划由 ChatGPT 自己完成，无需 task_plan。

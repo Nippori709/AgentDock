@@ -1,6 +1,6 @@
 # AgentDock Control Center
 
-AgentDock Control Center is the Windows desktop UI for the five core AgentDock workspace and permission settings:
+AgentDock Control Center is the Windows/macOS desktop-oriented UI for the five core AgentDock workspace and permission settings:
 
 1. Default Root
 2. Allowed Roots
@@ -10,7 +10,21 @@ AgentDock Control Center is the Windows desktop UI for the five core AgentDock w
 
 It is bundled inside the AgentDock repository and does not depend on a machine-specific path.
 
-## Requirements
+## macOS
+
+The macOS version uses the same UI in Chrome/Edge/Chromium (or the default browser) and a per-user `launchd` LaunchAgent for startup and background supervision. From a fresh Mac clone:
+
+```sh
+npm ci
+npm run setup:mac
+node scripts/local-workspace-bridge.mjs setup
+npm run control-center:start
+npm run control-center:doctor
+```
+
+Do not use `sudo`; the login service installs at `~/Library/LaunchAgents/com.agentdock.control-center.plist`. To uninstall it, run `npm run control-center:uninstall`. For complete setup, security, caveats, and update instructions see [MACOS.md](../MACOS.md).
+
+## Requirements (Windows)
 
 - Windows 10/11
 - Node.js 20+

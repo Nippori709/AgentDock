@@ -15,6 +15,15 @@ const token = 'test';
 const base = `http://127.0.0.1:${port}`;
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'agentdock-runtime-hot-'));
 const root = path.join(temp, 'root');
+function sameDirectory(left, right) {
+  try {
+    const a = fs.statSync(left, { bigint: true });
+    const b = fs.statSync(right, { bigint: true });
+    if (a.ino > 0n && a.dev === b.dev && a.ino === b.ino) return true;
+    return fs.realpathSync(left).toLowerCase() === fs.realpathSync(right).toLowerCase();
+  } catch { return false; }
+}
+
 const narrowRoot = path.join(root, 'narrow');
 fs.mkdirSync(narrowRoot, { recursive: true });
 
@@ -170,12 +179,12 @@ try {
   });
 
   const health = await (await fetch(`${base}/healthz`, { headers: { Authorization: `Bearer ${token}` } })).json();
-  if (path.resolve(health.defaultRoot).toLowerCase() !== path.resolve(narrowRoot).toLowerCase()) {
+  if (!sameDirectory(health.defaultRoot, narrowRoot)) {
     throw new Error('defaultRoot did not hot reload');
   }
   const current = await mcp('tools/call', { name: 'open_current_workspace', arguments: {} });
   const currentRoot = current?.result?.structuredContent?.root;
-  if (!currentRoot || path.resolve(currentRoot).toLowerCase() !== path.resolve(narrowRoot).toLowerCase()) {
+  if (!currentRoot || !sameDirectory(currentRoot, narrowRoot)) {
     throw new Error(`open_current_workspace did not switch to hot root: ${currentRoot}`);
   }
 
