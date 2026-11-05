@@ -20,7 +20,7 @@ function assertMac() {
 }
 
 export function launchAgentPath(home = os.homedir()) {
-  return path.join(home, 'Library', 'LaunchAgents', LAUNCH_AGENT_LABEL + '.plist');
+  return path.posix.join(home, 'Library', 'LaunchAgents', LAUNCH_AGENT_LABEL + '.plist');
 }
 
 export function launchAgentTarget(uid = process.getuid()) {
@@ -38,8 +38,8 @@ function xml(value) {
 
 export function launchAgentEnvironmentPath(nodePath, sourcePath = process.env.PATH || '') {
   return [...new Set([
-    path.dirname(nodePath),
-    ...String(sourcePath).split(path.delimiter),
+    path.posix.dirname(nodePath),
+    ...String(sourcePath).split(':'),
     '/opt/homebrew/bin',
     '/usr/local/bin',
     '/usr/bin',
@@ -53,7 +53,7 @@ export function launchAgentEnvironmentPath(nodePath, sourcePath = process.env.PA
 // service's Node path absolute and give child tools an explicit, stable PATH.
 // Never embed workspace auth tokens or tunnel credentials in the plist.
 export function buildLaunchAgentPlist({ nodePath, home = os.homedir(), workingDirectory = controlRoot, sourcePath = process.env.PATH || '' }) {
-  const logDir = path.join(home, '.agentdock-control', 'logs');
+  const logDir = path.posix.join(home, '.agentdock-control', 'logs');
   const fields = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
@@ -62,9 +62,9 @@ export function buildLaunchAgentPlist({ nodePath, home = os.homedir(), workingDi
     '  <key>Label</key><string>' + xml(LAUNCH_AGENT_LABEL) + '</string>',
     '  <key>ProgramArguments</key><array>',
     '    <string>' + xml(nodePath) + '</string>',
-    '    <string>' + xml(path.join(workingDirectory, 'control-center', 'server.mjs')) + '</string>',
+    '    <string>' + xml(path.posix.join(workingDirectory, 'control-center', 'server.mjs')) + '</string>',
     '  </array>',
-    '  <key>WorkingDirectory</key><string>' + xml(path.join(workingDirectory, 'control-center')) + '</string>',
+    '  <key>WorkingDirectory</key><string>' + xml(path.posix.join(workingDirectory, 'control-center')) + '</string>',
     '  <key>EnvironmentVariables</key><dict>',
     '    <key>HOME</key><string>' + xml(home) + '</string>',
     '    <key>PATH</key><string>' + xml(launchAgentEnvironmentPath(nodePath, sourcePath)) + '</string>',
@@ -116,7 +116,7 @@ export async function installMacControlCenter({ noStartup = false } = {}) {
 
   const home = os.homedir();
   const plist = launchAgentPath(home);
-  const logDir = path.join(home, '.agentdock-control', 'logs');
+  const logDir = path.posix.join(home, '.agentdock-control', 'logs');
   const previous = fs.existsSync(plist) ? fs.readFileSync(plist, 'utf8') : null;
   const newPlist = buildLaunchAgentPlist({ nodePath: selected.path, home, workingDirectory: repoRoot });
   fs.mkdirSync(path.dirname(plist), { recursive: true, mode: 0o755 });
