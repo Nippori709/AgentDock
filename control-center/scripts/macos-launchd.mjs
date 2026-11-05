@@ -73,8 +73,8 @@ export function buildLaunchAgentPlist({ nodePath, home = os.homedir(), workingDi
     '  <key>RunAtLoad</key><true/>',
     '  <key>KeepAlive</key><true/>',
     '  <key>ThrottleInterval</key><integer>15</integer>',
-    '  <key>StandardOutPath</key><string>' + xml(path.join(logDir, 'control-center.out.log')) + '</string>',
-    '  <key>StandardErrorPath</key><string>' + xml(path.join(logDir, 'control-center.err.log')) + '</string>',
+    '  <key>StandardOutPath</key><string>' + xml(path.posix.join(logDir, 'control-center.out.log')) + '</string>',
+    '  <key>StandardErrorPath</key><string>' + xml(path.posix.join(logDir, 'control-center.err.log')) + '</string>',
     '</dict>',
     '</plist>'
   ];
