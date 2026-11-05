@@ -152,7 +152,7 @@ function openAppWindow() {
       '--disable-background-mode'
     ], {
       detached: true,
-      windowsHide: process.platform === 'win32' ? false : undefined,
+      windowsHide: true,
       stdio: 'ignore'
     });
     child.unref();
