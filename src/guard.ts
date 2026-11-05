@@ -28,12 +28,32 @@ export function isSubpath(child: string, parent: string): boolean {
 
 // macOS resolves /var to /private/var. Compare canonical roots to avoid
 // rejecting an explicitly authorized directory because of a path alias.
-function isWithinAllowedRoots(realRoot: string, allowedRoots: string[]): boolean {
+function sameDirectoryIdentity(left: string, right: string): boolean {
+  try {
+    const a = fs.statSync(left, { bigint: true });
+    const b = fs.statSync(right, { bigint: true });
+    return a.isDirectory() && b.isDirectory() && a.ino > 0n
+      && a.dev === b.dev && a.ino === b.ino;
+  } catch {
+    return false;
+  }
+}
+
+export function isWithinAllowedRoots(realRoot: string, allowedRoots: string[]): boolean {
   return allowedRoots.some((allowedRoot) => {
-    try {
-      return isSubpath(realRoot, fs.realpathSync(allowedRoot));
-    } catch {
-      return false; // A missing or unreadable allow-root grants no access.
+    let allowed: string;
+    try { allowed = fs.realpathSync(allowedRoot); }
+    catch { return false; } // Missing/unreadable allow-root grants no access.
+    if (isSubpath(realRoot, allowed)) return true;
+    // Windows 8.3 aliases (RUNNER~1 vs runneradmin) can survive realpath.
+    // Compare directory identities while walking upwards, never downwards.
+    if (process.platform !== "win32") return false;
+    let current = realRoot;
+    while (true) {
+      if (sameDirectoryIdentity(current, allowed)) return true;
+      const parent = path.dirname(current);
+      if (parent === current) return false;
+      current = parent;
     }
   });
 }
