@@ -38,7 +38,12 @@ function assertAllowed(config: LocalWorkspaceBridgeConfig, absolute: string): st
     current = parent;
   }
   const canonical = fs.existsSync(current) ? fs.realpathSync(current) : path.resolve(current);
-  if (!config.allowedRoots.some((root) => isSubpath(canonical, path.resolve(root)))) {
+  if (!config.allowedRoots.some((root) => {
+    try {
+      const allowed = fs.realpathSync(root);
+      return isSubpath(canonical, allowed) || sameExistingLocation(current, allowed);
+    } catch { return false; }
+  })) {
     throw new LocalWorkspaceBridgeError(`Worktree path is outside allowed roots: ${resolved}`);
   }
   return resolved;
